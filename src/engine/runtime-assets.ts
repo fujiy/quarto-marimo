@@ -116,7 +116,7 @@ export function localizeRuntimeAssets(
 ): void {
   if (assets.version !== expectedVersion) {
     throw new Error(
-      `quarto-marimo-server supports marimo ${expectedVersion}; found ${
+      `quarto-marimo supports marimo ${expectedVersion}; found ${
         assets.version ?? "unknown"
       }`,
     );
