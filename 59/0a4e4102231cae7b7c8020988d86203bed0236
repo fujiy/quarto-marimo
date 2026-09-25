@@ -1,0 +1,55 @@
+_extensions/marimo/python/quarto_marimo/authoring.py
+  s_7d128d36982e62::t_d4f27b334efee8 152-153
+_extensions/marimo/python/quarto_marimo/compiler.py
+  s_7d128d36982e62::t_d4f27b334efee8 55,90,227,348,353,358,365,369-371,378,753,768,781,791,825
+_extensions/marimo/python/quarto_marimo/static.py
+  s_7d128d36982e62::t_f920da2a509972 6,77-78,121-149
+  s_7d128d36982e62::t_02899458dd604b 150-151
+tests/engine/projection.test.ts
+  s_7d128d36982e62::t_182e7e3b24ef29 88-94
+  s_7d128d36982e62::t_92b1fab41ab203 54-57,72-74,86-87,95-103,111-119
+  s_7d128d36982e62::t_3b1c493e96ef4e 58-71,104-110
+  s_7d128d36982e62::t_4ffb2c5fd46436 120-121
+src/engine/process.ts
+  s_7d128d36982e62::t_d4f27b334efee8 33,216-217
+  s_7d128d36982e62::t_0d7580d686e659 210
+_extensions/marimo/python/quarto_marimo/cli.py
+  s_7d128d36982e62::t_d4f27b334efee8 101,107
+src/engine/index.ts
+  s_7d128d36982e62::t_d4f27b334efee8 238-242
+README.md
+  s_7d128d36982e62::t_ca842ab1ea5777 94-99
+tests/python/test_cli.py
+  s_7d128d36982e62::t_1e8a74b9f2d3d1 53-56
+  s_7d128d36982e62::t_b23469cd0a3eda 51-52,57
+  s_7d128d36982e62::t_92b1fab41ab203 41,47-50,58-67
+  s_7d128d36982e62::t_545805c8031352 78-103
+  s_7d128d36982e62::t_154177ebf0ea3b 68-69
+src/engine/projection.ts
+  s_7d128d36982e62::t_dba3111f2046de 11-41,45-49
+  s_7d128d36982e62::t_00bd189dcb122a 50-51
+tests/python/test_authoring.py
+  s_7d128d36982e62::t_92b1fab41ab203 97-102
+_extensions/marimo/assets/browser-v0.5.0.js
+  s_7d128d36982e62::t_c6058c7ab99d10 1-1325
+_extensions/marimo/assets/islands-bridge-v0.5.0.css
+  s_7d128d36982e62::t_3e09624ec18cd5 1
+_extensions/marimo/marimo-engine-v0.5.0.js
+  s_7d128d36982e62::t_477ebbb56b49fc 1-1525
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "590a4e4102231cae7b7c8020988d86203bed0236",
+  "prompts": {},
+  "sessions": {
+    "s_7d128d36982e62": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0d2d2-a1df-7223-8c4b-bc6a5a583e70",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Yuki Fujihara <mail@fujiy.dev>"
+    }
+  }
+}
