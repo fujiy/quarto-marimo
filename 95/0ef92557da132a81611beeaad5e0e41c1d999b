@@ -1,0 +1,19 @@
+src/engine/runtime-assets.ts
+  s_7d128d36982e62::t_87ccfbf7299359 119
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "950ef92557da132a81611beeaad5e0e41c1d999b",
+  "prompts": {},
+  "sessions": {
+    "s_7d128d36982e62": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0d2d2-a1df-7223-8c4b-bc6a5a583e70",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Yuki Fujihara <mail@fujiy.dev>"
+    }
+  }
+}
