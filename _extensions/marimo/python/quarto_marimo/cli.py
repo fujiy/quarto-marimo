@@ -18,9 +18,10 @@ from marimo._convert.markdown.to_ir import (
 )
 
 from quarto_marimo.authoring import normalize_markdown
-from quarto_marimo.compiler import compile_page
+from quarto_marimo.compiler import cache_cells_enabled, compile_page
 from quarto_marimo.document import collect_page
 from quarto_marimo.protocol import CompiledMarimoPage
+from quarto_marimo.runtime_assets import ensure_runtime_assets
 from quarto_marimo.static import render_static_page
 
 ConversionResult = dict[str, Any]
@@ -34,9 +35,16 @@ def convert_markdown(
     filename: str,
     interactive: bool,
     global_eval: bool = True,
+    cache_output_dir: Path | None = None,
+    extension_dir: Path | None = None,
 ) -> dict[str, Any]:
     callback = (
-        interactive_export(filename=filename, global_eval=global_eval)
+        interactive_export(
+            filename=filename,
+            global_eval=global_eval,
+            cache_output_dir=cache_output_dir,
+            extension_dir=extension_dir,
+        )
         if interactive
         else static_export(filename=filename, global_eval=global_eval)
     )
@@ -54,6 +62,8 @@ def interactive_export(
     *,
     filename: str,
     global_eval: bool,
+    cache_output_dir: Path | None = None,
+    extension_dir: Path | None = None,
 ) -> ExportCallback:
     def export(root: Element) -> SafeWrap:
         request = collect_page(
@@ -61,9 +71,29 @@ def interactive_export(
             filename=filename,
             global_eval=global_eval,
         )
+        pyproject = request.metadata.pyproject
+        cache_enabled = cache_cells_enabled(pyproject)
+        if cache_enabled:
+            if os.environ.get("QUARTO_MARIMO_DEBUG_ENDPOINT"):
+                raise RuntimeError(
+                    "cache hydration cannot use QUARTO_MARIMO_DEBUG_ENDPOINT"
+                )
+            if cache_output_dir is None:
+                raise RuntimeError(
+                    "cache_cells=true requires a Quarto page resource directory"
+                )
+            if extension_dir is None:
+                raise RuntimeError("Quarto extension directory is unavailable")
+            ensure_runtime_assets(
+                extension_dir,
+                version_override=os.environ.get("QUARTO_MARIMO_VERSION"),
+            )
+        payload = request.to_json()
+        if cache_output_dir is not None:
+            payload["cacheOutputDirectory"] = str(cache_output_dir)
         page = asyncio.run(
             compile_page(
-                request.to_json(),
+                payload,
                 development_url=os.environ.get("QUARTO_MARIMO_DEBUG_ENDPOINT"),
                 version_override=os.environ.get("QUARTO_MARIMO_VERSION"),
             )
@@ -72,6 +102,7 @@ def interactive_export(
             {
                 "kind": "page",
                 "page": page,
+                "cacheHydration": cache_enabled,
             }
         )
 
@@ -104,10 +135,14 @@ def static_export(
 
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
-    if len(args) not in (2, 3):
-        raise ValueError("expected reference file, output mode, and optional eval mode")
+    if len(args) not in (2, 3, 4):
+        raise ValueError(
+            "expected reference file, output mode, optional eval mode, "
+            "and optional page resource directory"
+        )
     reference_file, output_mode = args[:2]
-    global_eval = args[2].lower() == "yes" if len(args) == 3 else True
+    global_eval = args[2].lower() == "yes" if len(args) >= 3 else True
+    resource_dir = Path(args[3]) if len(args) == 4 else None
     interactive = output_mode.lower() == "html"
     os.environ["MARIMO_NO_JS"] = str(not interactive).lower()
 
@@ -122,6 +157,12 @@ def main(argv: list[str] | None = None) -> int:
             filename=reference_file,
             interactive=interactive,
             global_eval=global_eval,
+            cache_output_dir=resource_dir if interactive else None,
+            extension_dir=(
+                Path(__file__).resolve().parents[2]
+                if resource_dir is not None and interactive
+                else None
+            ),
         )
     sys.stdout.buffer.write(json.dumps(result).encode("utf-8"))
     sys.stdout.flush()

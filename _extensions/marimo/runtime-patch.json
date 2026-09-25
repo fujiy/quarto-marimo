@@ -1,0 +1,16 @@
+{
+  "package": "@marimo-team/islands",
+  "version": "0.23.16",
+  "tarball": "https://registry.npmjs.org/@marimo-team/islands/-/islands-0.23.16.tgz",
+  "integrity": "sha512-I6MwAcWe7XwDU4+fkEhgL0jCUNzuFpPMAjAX48V7X0qZL9tcBWMpoD2a1E1TwXtNqt67wC29vz7KpynVT+plOQ==",
+  "mainFile": "main.js",
+  "mainSha256": "a303fb7dfad425f0f944a1d0accd0c58d3d9ebd4b5793746e55834e41f9bc7d2",
+  "styleFile": "style.css",
+  "workerPattern": "/assets/worker-[A-Za-z0-9_-]+\\.js",
+  "workerSha256": "4025df813325b4eab5aeb9531ee4e8a9cc27b4b7ff35c8e4e92220aab1726fdf",
+  "expectedReplacementCount": 1,
+  "expectedWorkerFactory": "    create() {\n      let e = `import ${JSON.stringify(new URL(this.url, import.meta.url))}`, r = new Blob([\n        e\n      ], {\n        type: \"application/javascript\"\n      }), c = URL.createObjectURL(r), l = new Worker(c, {\n        type: \"module\",\n        name: this.name\n      });\n      return URL.revokeObjectURL(c), l;\n    }\n",
+  "patchedWorkerFactory": "    create() {\n      // marimo resolves notebook_location() two levels above the assets entry.\n      const pageUrl = new URL(window.location.href);\n      const pageName = pageUrl.pathname.split(\"/\").pop() || \"index.html\";\n      const pageStem = pageName.replace(/\\.[^.]*$/, \"\") || \"index\";\n      const workerEntry = `${pageStem}_files/assets/quarto-marimo-worker.js`;\n      return new Worker(new URL(workerEntry, pageUrl), {\n        type: \"module\",\n        name: this.name\n      });\n    }\n",
+  "expectedCacheConfig": "userConfig:Ls()",
+  "patchedCacheConfig": "userConfig:{...Ls(),runtime:{...Ls().runtime,cache_cells:!0}}"
+}

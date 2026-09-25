@@ -1,4 +1,4 @@
-.PHONY: build browser-build engine-build docs-prepare clean-python-cache test test-ts test-py lint preview render ci clean setup
+.PHONY: build browser-build engine-build docs-prepare clean-python-cache test test-ts test-py test-browser lint preview render ci clean setup
 
 VERSION := $(shell grep '^version:' _extensions/marimo/_extension.yml | sed 's/.*: *//')
 ENGINE_ARTIFACT := dist/marimo-engine-v$(VERSION).js
@@ -82,7 +82,12 @@ clean-python-cache:
 test: test-ts test-py
 
 test-ts:
-	$(DENO) test --allow-read --allow-write --allow-env --allow-run tests
+	$(DENO) test --allow-read --allow-write --allow-env --allow-run --allow-net=127.0.0.1 tests
+
+test-browser:
+	@if [ -z "$$CHROME_BIN" ]; then echo "Set CHROME_BIN to a Chrome executable." >&2; exit 1; fi
+	@if [ -z "$$QUARTO_MARIMO_TEST_SITE_DIR" ]; then echo "Set QUARTO_MARIMO_TEST_SITE_DIR to the rendered cache fixture." >&2; exit 1; fi
+	$(DENO) test --allow-read --allow-write --allow-env --allow-run --allow-net=127.0.0.1 tests/browser/cache-hydration.test.ts
 
 test-py:
 	$(PYTEST) tests/python -v

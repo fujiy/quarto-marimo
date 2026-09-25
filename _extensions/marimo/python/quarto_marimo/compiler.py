@@ -14,12 +14,15 @@ import hashlib
 import json
 import keyword
 import re
+import shutil
 import symtable
 import sys
+import tempfile
 from contextlib import redirect_stdout
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from importlib import import_module
+from pathlib import Path
 from typing import Any, cast
 from urllib.parse import quote
 
@@ -372,18 +375,58 @@ def to_marimo_ir(request: PageRequest) -> NotebookSerializationV1:
 
 
 def generator_from_ir(
-    notebook: NotebookSerializationV1, request: PageRequest
+    notebook: NotebookSerializationV1,
+    request: PageRequest,
+    *,
+    filepath: str | None = None,
 ) -> MarimoIslandGenerator:
+    source_path = filepath or request.filename or None
     if notebook.cells:
         return MarimoIslandGenerator._from_ir(
             notebook,
             app_id=request.app_id,
-            filepath=request.filename or None,
+            filepath=source_path,
         )
     return MarimoIslandGenerator(app_id=request.app_id)
 
 
-async def build_generator(generator: MarimoIslandGenerator) -> None:
+def cache_cells_enabled(pyproject: str | None) -> bool:
+    if not pyproject or not pyproject.strip():
+        return False
+    try:
+        tomllib = import_module("tomllib")
+    except ModuleNotFoundError:  # Python 3.10
+        tomllib = import_module("tomli")
+
+    text = pyproject.strip()
+    if text.startswith("# /// script"):
+        lines = text.splitlines()[1:]
+        body: list[str] = []
+        for line in lines:
+            if line.strip() == "# ///":
+                break
+            if line.startswith("# "):
+                body.append(line[2:])
+            elif line == "#":
+                body.append("")
+            else:
+                body.append(line)
+        text = "\n".join(body)
+    try:
+        metadata = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as error:
+        raise ValueError("marimo pyproject metadata is not valid TOML") from error
+    tool = metadata.get("tool")
+    marimo_config = tool.get("marimo") if isinstance(tool, dict) else None
+    runtime = marimo_config.get("runtime") if isinstance(marimo_config, dict) else None
+    return isinstance(runtime, dict) and runtime.get("cache_cells") is True
+
+
+async def build_generator(
+    generator: MarimoIslandGenerator,
+    *,
+    cache_output_dir: Path | None = None,
+) -> None:
     from marimo._session.notebook import AppFileManager
 
     if getattr(generator, "has_run", False):
@@ -394,11 +437,31 @@ async def build_generator(generator: MarimoIslandGenerator) -> None:
         generator._app,
         filename=getattr(generator, "_source_filename", None),
     )
+    cache_path = None
+    if cache_output_dir is not None:
+        try:
+            from marimo._export.file import _cache_export_manifest_path
+            from marimo._utils.marimo_path import MarimoPath
+        except (ImportError, ModuleNotFoundError) as error:
+            raise RuntimeError(
+                "cache hydration requires marimo 0.23.16 cached export"
+            ) from error
+        if not file_manager.path:
+            raise ValueError("cache export requires an isolated notebook filename")
+        cache_path = MarimoPath(file_manager.path)
+        assert cache_path is not None
+        _cache_export_manifest_path(cache_path).unlink(missing_ok=True)
+        shutil.rmtree(cache_output_dir / "public" / "cache", ignore_errors=True)
+
     # marimo 0.23.16 moved notebook execution to request objects.
     try:
         export_file = import_module("marimo._export.file")
         export_requests = import_module("marimo._export.requests")
     except ModuleNotFoundError as error:
+        if cache_output_dir is not None:
+            raise RuntimeError(
+                "cache hydration requires marimo 0.23.16 cached export"
+            ) from error
         if error.name not in {
             "marimo._export",
             "marimo._export.file",
@@ -423,9 +486,18 @@ async def build_generator(generator: MarimoIslandGenerator) -> None:
                     argv=None,
                     quiet=True,
                     persist_session=False,
+                    cache_export=cache_output_dir is not None,
                 ),
             )
         )
+        if cache_output_dir is not None:
+            export_file.bundle_cache_export(
+                export_requests.CacheBundleRequest(
+                    notebook_path=cache_path,
+                    output_directory=cache_output_dir,
+                    stdout=sys.stderr,
+                )
+            )
     generator.has_run = True
 
     for stub in generator.stubs:
@@ -673,12 +745,55 @@ async def compile_page(
 ) -> dict[str, Any]:
     request = page_request(payload)
     notebook = to_marimo_ir(request)
-    generator = generator_from_ir(notebook, request)
+    cache_output_dir: Path | None = None
+    if request.pyproject and cache_cells_enabled(request.pyproject):
+        requested_output = payload.get("cacheOutputDirectory")
+        if not isinstance(requested_output, str) or not requested_output:
+            raise ValueError(
+                "cache_cells=true requires a Quarto page resource directory"
+            )
+        cache_output_dir = Path(requested_output)
+        cache_output_dir.mkdir(parents=True, exist_ok=True)
+
+    if cache_output_dir is None:
+        generator = generator_from_ir(notebook, request)
+        return await _compile_page_generator(
+            request,
+            notebook,
+            generator,
+            development_url=development_url,
+            version_override=version_override,
+        )
+
+    # marimo stores its export manifest beside the notebook path. Give each
+    # render a unique temporary path so parallel pages cannot share manifests.
+    with tempfile.TemporaryDirectory(prefix="quarto-marimo-cache-") as temporary:
+        cache_notebook = str(Path(temporary) / "page.qmd")
+        generator = generator_from_ir(notebook, request, filepath=cache_notebook)
+        return await _compile_page_generator(
+            request,
+            notebook,
+            generator,
+            cache_output_dir=cache_output_dir,
+            development_url=development_url,
+            version_override=version_override,
+        )
+
+
+async def _compile_page_generator(
+    request: PageRequest,
+    notebook: NotebookSerializationV1,
+    generator: MarimoIslandGenerator,
+    *,
+    cache_output_dir: Path | None = None,
+    development_url: str | None = None,
+    version_override: str | None = None,
+) -> dict[str, Any]:
     runtime_cells = request.runtime_cells
     stubs = stubs_from_generator(generator, runtime_cells)
 
     if stubs:
-        await build_generator(generator)
+        await build_generator(generator, cache_output_dir=cache_output_dir)
 
     for plan, stub in zip(
         request.setup_cells,

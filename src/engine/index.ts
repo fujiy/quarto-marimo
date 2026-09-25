@@ -1,4 +1,4 @@
-import { dirname, fromFileUrl } from "path";
+import { dirname, fromFileUrl, join } from "path";
 
 import type {
   CheckConfiguration,
@@ -22,6 +22,12 @@ import {
   MARIMO_CELL_REGEX,
 } from "./authoring.ts";
 import { writeBrowserHeader } from "./browser-assets.ts";
+import {
+  localizeRuntimeAssets,
+  pageResourcePaths,
+  runtimeResourceFiles,
+  writeWorkerEntry,
+} from "./runtime-assets.ts";
 import {
   projectInteractivePage,
   projectStaticPage,
@@ -143,6 +149,17 @@ const marimoEngineDiscovery: ExecutionEngineDiscovery = {
 
     execute: async (options: ExecuteOptions): Promise<ExecuteResult> => {
       const interactive = quarto.format.isHtmlCompatible(options.format);
+      const extensionDir = dirname(fromFileUrl(import.meta.url));
+      const canUsePageResources = interactive &&
+        !Deno.env.get("QUARTO_MARIMO_DEBUG_ENDPOINT");
+      const outputFile = outputFileMetadata(options);
+      const resourcePaths = canUsePageResources
+        ? pageResourcePaths(
+          options.project.dir,
+          options.target.input,
+          outputFile,
+        )
+        : undefined;
       const execution = await quarto.console.withSpinner(
         { message: "Executing marimo cells..." },
         async () =>
@@ -154,8 +171,62 @@ const marimoEngineDiscovery: ExecutionEngineDiscovery = {
             globalEval: options.target.metadata.eval !== false,
             externalEnv: options.target.metadata["external-env"] === true,
             pyproject: String(options.target.metadata.pyproject ?? ""),
+            pageResourceDirectory: resourcePaths?.supportingDirectory,
           }),
       );
+      const supporting: string[] = [];
+      let resourceFiles: string[] | undefined;
+      if (
+        execution.kind === "page" && execution.cacheHydration &&
+        resourcePaths &&
+        execution.page.app
+      ) {
+        const manifest = JSON.parse(
+          Deno.readTextFileSync(join(extensionDir, "runtime-patch.json")),
+        ) as {
+          version: string;
+          mainFile: string;
+          styleFile: string;
+          workerPattern: string;
+        };
+        const runtimeDirectory = join(
+          extensionDir,
+          "assets",
+          "runtime",
+          "islands",
+          manifest.version,
+          "dist",
+        );
+        const runtimeMain = join(runtimeDirectory, manifest.mainFile);
+        const mainSource = Deno.readTextFileSync(runtimeMain);
+        const workerMatches = mainSource.match(
+          new RegExp(manifest.workerPattern, "g"),
+        ) ?? [];
+        if (workerMatches.length !== 1) {
+          throw new Error("pinned islands bundle has no unique Worker asset");
+        }
+        const runtimeWorker = join(
+          runtimeDirectory,
+          workerMatches[0].replace(/^\//, ""),
+        );
+        const runtimeStyle = join(runtimeDirectory, manifest.styleFile);
+        await writeWorkerEntry(
+          resourcePaths.supportingDirectory,
+          runtimeWorker,
+        );
+        localizeRuntimeAssets(
+          execution.page.app.assets,
+          resourcePaths.outputDirectory,
+          runtimeMain,
+          runtimeStyle,
+          manifest.version,
+        );
+        supporting.push(resourcePaths.supportingDirectory);
+        resourceFiles = await runtimeResourceFiles(
+          runtimeDirectory,
+          resourcePaths.outputDirectory,
+        );
+      }
       const chunks = await quarto.markdownRegex.breakQuartoMd(
         options.target.markdown,
         false,
@@ -178,7 +249,6 @@ const marimoEngineDiscovery: ExecutionEngineDiscovery = {
         .join("");
       const includes: PandocIncludes = {};
       if (execution.kind === "page") {
-        const extensionDir = dirname(fromFileUrl(import.meta.url));
         includes["include-in-header"] = [
           writeBrowserHeader(extensionDir, options.tempDir),
         ];
@@ -186,9 +256,10 @@ const marimoEngineDiscovery: ExecutionEngineDiscovery = {
       return {
         engine: "marimo",
         markdown,
-        supporting: [],
+        supporting,
         filters: [],
         includes,
+        resourceFiles,
       };
     },
 
@@ -200,6 +271,19 @@ const marimoEngineDiscovery: ExecutionEngineDiscovery = {
       Promise.resolve(),
   }),
 };
+
+function outputFileMetadata(options: ExecuteOptions): string | undefined {
+  const metadata = options.target.metadata as Record<string, unknown>;
+  const targetOutput = metadata["output-file"];
+  if (typeof targetOutput === "string" && targetOutput.trim()) {
+    return targetOutput;
+  }
+  const render = options.format.render as Record<string, unknown>;
+  const formatOutput = render["output-file"];
+  return typeof formatOutput === "string" && formatOutput.trim()
+    ? formatOutput
+    : undefined;
+}
 
 async function htmlToMarkdown(html: string): Promise<string> {
   const result = await quarto.system.pandoc(

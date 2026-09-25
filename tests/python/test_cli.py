@@ -3,9 +3,14 @@ from __future__ import annotations
 import io
 import json
 import sys
+from typing import TYPE_CHECKING
 
 import pytest
+from quarto_marimo import cli
 from quarto_marimo.cli import convert_markdown, main
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 MARKDOWN = """
 ---
@@ -32,9 +37,44 @@ def test_interactive_conversion_returns_shared_page_protocol():
     )
 
     assert result["kind"] == "page"
+    assert result["cacheHydration"] is False
     assert result["page"]["protocolVersion"] == 2
     assert len(result["page"]["cells"]) == 2
     assert "Reactive heading" in result["page"]["cells"][1]["html"]
+
+
+def test_interactive_conversion_marks_cache_hydration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    payload: dict[str, object] = {}
+
+    async def compile_page(value: dict[str, object], **_kwargs: object):
+        payload.update(value)
+        return {"compiled": True}
+
+    monkeypatch.setattr(cli, "compile_page", compile_page)
+    monkeypatch.setattr(cli, "ensure_runtime_assets", lambda *_args, **_kwargs: None)
+    result = convert_markdown(
+        """---
+pyproject: |
+  [tool.marimo.runtime]
+  cache_cells = true
+---
+
+```{python .marimo}
+value = 1
+value
+```
+""",
+        filename="page.qmd",
+        interactive=True,
+        cache_output_dir=tmp_path,
+        extension_dir=tmp_path,
+    )
+
+    assert result["cacheHydration"] is True
+    assert payload["cacheOutputDirectory"] == str(tmp_path)
 
 
 def test_static_conversion_returns_pandoc_projection_payloads():

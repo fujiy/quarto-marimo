@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from typing import TYPE_CHECKING
 
 import pytest
 from quarto_marimo.compiler import compile_page
@@ -10,6 +12,9 @@ from quarto_marimo.protocol import (
     MarimoPageMetadata,
     MarimoPageRequest,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def request(*sources: str, pyproject: str = "") -> MarimoPageRequest:
@@ -79,6 +84,28 @@ def test_compile_page_embeds_dependency_metadata_in_notebook_source():
     assert '# dependencies = ["polars"]' in page.app.notebook_code
 
 
+def test_cache_cells_setting_is_read_from_plain_and_pep723_metadata():
+    plain = """
+requires-python = ">=3.11"
+[tool.marimo.runtime]
+cache_cells = true
+"""
+    pep723 = """
+# /// script
+# requires-python = ">=3.11"
+# [tool.marimo.runtime]
+# cache_cells = true
+# ///
+"""
+
+    from quarto_marimo.compiler import cache_cells_enabled
+
+    assert cache_cells_enabled(plain) is True
+    assert cache_cells_enabled(pep723) is True
+    assert cache_cells_enabled("[tool.marimo.runtime]\ncache_cells = false") is False
+    assert cache_cells_enabled('tool = "not-a-table"') is False
+
+
 def test_compile_page_id_is_stable_for_same_page_identity():
     first = compile_request(request("value = 1\nvalue"))
     second = compile_request(request("value = 2\nvalue"))
@@ -86,6 +113,92 @@ def test_compile_page_id_is_stable_for_same_page_identity():
     assert first.app is not None
     assert second.app is not None
     assert first.app.id == second.app.id
+
+
+def test_compile_page_exports_numpy_and_pickle_cache_to_page_resources(tmp_path: Path):
+    pytest.importorskip("numpy")
+    marker = tmp_path / "native-marker.log"
+    resource_dir = tmp_path / "index_files"
+    pyproject = """
+requires-python = ">=3.11"
+dependencies = ["numpy"]
+[tool.marimo.runtime]
+cache_cells = true
+"""
+    source = """
+import sys
+import numpy as np
+from pathlib import Path
+from types import SimpleNamespace
+if sys.platform == "emscripten":
+    raise RuntimeError("A_EXECUTED_IN_BROWSER")
+Path(@MARKER@).write_text("native\\n")
+x = np.arange(1, 5, dtype=float)
+config = SimpleNamespace(label="cached")
+""".replace("@MARKER@", json.dumps(str(marker)))
+    request_value = request(
+        source,
+        "import marimo as mo\nslider = mo.ui.slider(1, 10, value=2)\nslider",
+        "f'{config.label}: {(x * slider.value).tolist()}'",
+        pyproject=pyproject,
+    )
+    payload = request_value.to_json()
+    payload["cacheOutputDirectory"] = str(resource_dir)
+
+    page = CompiledMarimoPage.from_json(asyncio.run(compile_page(payload)))
+
+    assert marker.read_text(encoding="utf-8") == "native\n"
+    assert page.app is not None
+    assert "cache_cells = true" in page.app.notebook_code
+    exported_files = list((resource_dir / "public" / "cache").rglob("*"))
+    assert any(path.suffix == ".npy" for path in exported_files)
+    assert any(path.suffix == ".pickle" for path in exported_files)
+    assert "cached" in page.cells[-1].html
+    assert "4" in page.cells[-1].html
+
+
+def test_cache_cells_require_a_page_resource_directory():
+    request_value = request(
+        "x = 1",
+        pyproject="[tool.marimo.runtime]\ncache_cells = true",
+    )
+
+    with pytest.raises(ValueError, match="Quarto page resource directory"):
+        asyncio.run(compile_page(request_value.to_json()))
+
+
+def test_parallel_root_and_nested_cache_exports_do_not_share_manifests(
+    tmp_path: Path,
+):
+    pytest.importorskip("numpy")
+    pyproject = """
+requires-python = ">=3.11"
+dependencies = ["numpy"]
+[tool.marimo.runtime]
+cache_cells = true
+"""
+    root_request = request("import numpy as np\nx = np.arange(3)", pyproject=pyproject)
+    nested_request = request(
+        "import numpy as np\nx = np.arange(5)", pyproject=pyproject
+    )
+    root_payload = root_request.to_json()
+    nested_payload = nested_request.to_json()
+    root_output = tmp_path / "index_files"
+    nested_output = tmp_path / "nested" / "index_files"
+    root_payload["cacheOutputDirectory"] = str(root_output)
+    nested_payload["cacheOutputDirectory"] = str(nested_output)
+
+    async def compile_both():
+        return await asyncio.gather(
+            compile_page(root_payload),
+            compile_page(nested_payload),
+        )
+
+    pages = asyncio.run(compile_both())
+
+    assert all(CompiledMarimoPage.from_json(page).app is not None for page in pages)
+    assert list((root_output / "public" / "cache").rglob("*.npy"))
+    assert list((nested_output / "public" / "cache").rglob("*.npy"))
 
 
 def test_page_defaults_and_setup_cells_share_the_runtime():

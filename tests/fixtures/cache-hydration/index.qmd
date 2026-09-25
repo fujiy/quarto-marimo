@@ -1,0 +1,32 @@
+---
+title: Cached root page
+engine: marimo
+format: html
+external-env: true
+pyproject: |
+  requires-python = ">=3.11"
+  dependencies = ["numpy"]
+  [tool.marimo.runtime]
+  cache_cells = true
+---
+
+```{python .marimo}
+import sys
+import numpy as np
+from types import SimpleNamespace
+
+if sys.platform == "emscripten":
+    raise RuntimeError("A_EXECUTED_IN_BROWSER")
+x = np.arange(1, 5, dtype=float)
+config = SimpleNamespace(label="root")
+```
+
+```{python .marimo}
+import marimo as mo
+slider = mo.ui.slider(1, 10, value=2)
+mo.vstack([slider, mo.md(f"UI_RUNTIME: {__import__('sys').platform}")])
+```
+
+```{python .marimo}
+f"{config.label}: {(x * slider.value).tolist()}"
+```

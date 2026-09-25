@@ -26,7 +26,11 @@ export type StaticMarimoOutput = {
 };
 
 export type MarimoExecution =
-  | { kind: "page"; page: CompiledMarimoPage }
+  | {
+    kind: "page";
+    page: CompiledMarimoPage;
+    cacheHydration: boolean;
+  }
   | { kind: "static"; outputs: StaticMarimoOutput[] };
 
 export async function runMarimoCompiler(
@@ -39,6 +43,7 @@ export async function runMarimoCompiler(
     globalEval: boolean;
     externalEnv: boolean;
     pyproject: string;
+    pageResourceDirectory?: string;
   },
 ): Promise<MarimoExecution> {
   const extensionDir = dirname(fromFileUrl(options.moduleUrl));
@@ -65,6 +70,9 @@ export async function runMarimoCompiler(
     options.interactive ? "html" : "static",
     options.globalEval ? "yes" : "no",
   );
+  if (options.interactive && options.pageResourceDirectory) {
+    args.push(options.pageResourceDirectory);
+  }
 
   let output: string;
   try {
@@ -194,10 +202,15 @@ async function removeTemporaryDirectory(path: string): Promise<void> {
 
 function isPageExecution(
   value: unknown,
-): value is { kind: "page"; page: CompiledMarimoPage } {
+): value is {
+  kind: "page";
+  page: CompiledMarimoPage;
+  cacheHydration: boolean;
+} {
   return (
     isRecord(value) &&
     value.kind === "page" &&
+    typeof value.cacheHydration === "boolean" &&
     isCompiledMarimoPage(value.page)
   );
 }
