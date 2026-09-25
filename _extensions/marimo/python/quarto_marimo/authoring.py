@@ -15,6 +15,7 @@ SQL_DOT_FENCE_REGEX = re.compile(
     r"^(\s*`{3,})\s*\{\s*sql\s*\.marimo(?P<attrs>[^}]*)\}\s*$",
     re.MULTILINE,
 )
+CELL_CONTEXTS = {"render", "runtime", "setup"}
 
 
 def normalize_markdown(markdown: str) -> str:
@@ -149,8 +150,14 @@ def execution_options_patch(options: JsonObject) -> JsonObject:
         render["source"] = True
     if "eval" in options:
         execution["enabled"] = as_bool(options["eval"])
-    if str(options.get("context") or "").strip().lower() == "ui":
-        render["buildOnly"] = True
+    context = str(options.get("context") or "runtime").strip().lower()
+    if context not in CELL_CONTEXTS:
+        expected = ", ".join(sorted(CELL_CONTEXTS))
+        raise ValueError(
+            f"unsupported marimo cell context {context!r}; expected {expected}"
+        )
+    if context == "render":
+        render["renderOnly"] = True
 
     patch: JsonObject = {}
     if render:

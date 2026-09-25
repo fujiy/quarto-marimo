@@ -83,13 +83,13 @@ Deno.test("projects one app carrier followed by cell references", async () => {
   assertEquals("output" in second.cell, false);
 });
 
-Deno.test("projects build-only output through Pandoc and keeps the app carrier", async () => {
+Deno.test("projects render-only output through Pandoc and keeps the app carrier", async () => {
   const value = page();
   value.cells[0].options = {
     ...value.cells[0].options,
     render: {
       ...value.cells[0].options.render,
-      buildOnly: true,
+      renderOnly: true,
     } as typeof value.cells[0]["options"]["render"],
   };
 

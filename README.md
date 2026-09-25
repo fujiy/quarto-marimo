@@ -91,12 +91,14 @@ value
 | `unparsable`    | `false` | Preserve source as a non-reactive cell             |
 | `name`          | `_`     | Set the marimo cell name                           |
 | `column`        | none    | Set the marimo layout column                       |
-| `context`       | none    | Use `ui` to project build output through Pandoc only |
+| `context`       | `runtime` | Use `render` to project build output through Pandoc only |
 
-`context: ui` executes the cell during the Quarto build, passes its output to
-Pandoc, and disables that cell in the browser notebook. This is useful for
-numbered equations and cross references that Quarto must process. A build-only
-cell must not define values needed by browser-executed cells.
+The default `context: runtime` includes the cell in the browser notebook; it may
+be omitted. `context: render` executes the cell only during Quarto rendering,
+passes its output to Pandoc, and disables that cell in the browser notebook.
+This is useful for numbered equations and cross references that Quarto must
+process. A render-only cell must not define values needed by browser-executed
+cells. Unknown context names are errors.
 
 SQL cells use the same `.marimo` class:
 

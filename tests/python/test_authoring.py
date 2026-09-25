@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from quarto_marimo.authoring import (
     cell_options_patch,
     execution_options_patch,
@@ -94,10 +95,29 @@ def test_page_execution_options_are_protocol_patches():
     }
 
 
-def test_ui_context_marks_a_cell_for_build_only_projection():
-    options = execution_options_patch({"context": "ui"})
+def test_render_context_marks_a_cell_for_render_only_projection():
+    options = execution_options_patch({"context": "render"})
 
-    assert options == {"render": {"buildOnly": True}}
+    assert options == {"render": {"renderOnly": True}}
+
+
+def test_runtime_context_is_the_explicit_default():
+    assert execution_options_patch({}) == execution_options_patch(
+        {"context": "runtime"}
+    )
+
+
+@pytest.mark.parametrize("context", ["ui", "rener"])
+def test_unknown_context_is_rejected(context: str):
+    with pytest.raises(
+        ValueError,
+        match=rf"unsupported.*{context}.*render, runtime, setup",
+    ):
+        execution_options_patch({"context": context})
+
+
+def test_setup_context_remains_available():
+    assert execution_options_patch({"context": "setup"}) == {}
 
 
 def test_sql_class_fence_is_normalized_for_marimo_parser():

@@ -52,7 +52,7 @@ DEFAULT_CELL_OPTIONS: dict[str, Any] = {
         "editor": False,
         "error": True,
         "serverOutput": True,
-        "buildOnly": False,
+        "renderOnly": False,
     },
     "execution": {"enabled": True},
     "marimo": {"disabled": False, "unparsable": False},
@@ -87,7 +87,7 @@ class PlannedCell:
     display_editor: bool
     display_output: bool
     display_server_output: bool
-    build_only: bool
+    render_only: bool
     start_line: int | None
 
 
@@ -224,7 +224,7 @@ def plan_cell(
         display_editor=display_editor,
         display_output=display_output,
         display_server_output=display_server_output,
-        build_only=False if setup else as_bool(render.get("buildOnly")),
+        render_only=False if setup else as_bool(render.get("renderOnly")),
         start_line=(
             int(cell["startLine"])
             if isinstance(cell.get("startLine"), int)
@@ -350,7 +350,7 @@ def cell_config(plan: PlannedCell, *, browser: bool = False) -> dict[str, Any]:
     column = plan.options.get("column")
     if isinstance(column, int):
         config["column"] = column
-    if not plan.execute or (browser and plan.build_only):
+    if not plan.execute or (browser and plan.render_only):
         config["disabled"] = True
     return config
 

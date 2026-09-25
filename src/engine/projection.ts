@@ -19,7 +19,7 @@ export async function projectInteractivePage(
   const runtimePage: CompiledMarimoPage = {
     ...page,
     cells: page.cells.map((cell) =>
-      isBuildOnly(cell)
+      isRenderOnly(cell)
         ? {
           ...cell,
           options: {
@@ -33,7 +33,7 @@ export async function projectInteractivePage(
   const payloads = projectPageCellPayloads(runtimePage);
   return await Promise.all(
     page.cells.map((cell, index) =>
-      isBuildOnly(cell)
+      isRenderOnly(cell)
         ? renderStaticOutput(buildOutputs[index], htmlToMarkdown)
         : Promise.resolve(
           payloads[index] ? rawHtml(renderIsland(payloads[index])) : "",
@@ -42,11 +42,11 @@ export async function projectInteractivePage(
   );
 }
 
-function isBuildOnly(cell: CompiledMarimoPage["cells"][number]): boolean {
+function isRenderOnly(cell: CompiledMarimoPage["cells"][number]): boolean {
   const render = cell.options.render as typeof cell.options.render & {
-    buildOnly?: unknown;
+    renderOnly?: unknown;
   };
-  return render.buildOnly === true;
+  return render.renderOnly === true;
 }
 
 export async function projectStaticPage(

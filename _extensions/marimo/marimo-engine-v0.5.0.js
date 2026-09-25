@@ -988,7 +988,7 @@ async function runtimeResourceFiles(runtimeDirectory, pageDirectory) {
 }
 function localizeRuntimeAssets(assets, pageDirectory, mainFile, styleFile, expectedVersion) {
   if (assets.version !== expectedVersion) {
-    throw new Error(`quarto-marimo-server supports marimo ${expectedVersion}; found ${assets.version ?? "unknown"}`);
+    throw new Error(`quarto-marimo supports marimo ${expectedVersion}; found ${assets.version ?? "unknown"}`);
   }
   const mainScripts = assets.moduleScripts.filter((source) => {
     try {
@@ -1123,7 +1123,7 @@ async function projectInteractivePage(page, buildOutputs, htmlToMarkdown2) {
   }
   const runtimePage = {
     ...page,
-    cells: page.cells.map((cell) => isBuildOnly(cell) ? {
+    cells: page.cells.map((cell) => isRenderOnly(cell) ? {
       ...cell,
       options: {
         ...cell.options,
@@ -1135,11 +1135,11 @@ async function projectInteractivePage(page, buildOutputs, htmlToMarkdown2) {
     } : cell)
   };
   const payloads = projectPageCellPayloads(runtimePage);
-  return await Promise.all(page.cells.map((cell, index) => isBuildOnly(cell) ? renderStaticOutput(buildOutputs[index], htmlToMarkdown2) : Promise.resolve(payloads[index] ? rawHtml(renderIsland(payloads[index])) : "")));
+  return await Promise.all(page.cells.map((cell, index) => isRenderOnly(cell) ? renderStaticOutput(buildOutputs[index], htmlToMarkdown2) : Promise.resolve(payloads[index] ? rawHtml(renderIsland(payloads[index])) : "")));
 }
-function isBuildOnly(cell) {
+function isRenderOnly(cell) {
   const render = cell.options.render;
-  return render.buildOnly === true;
+  return render.renderOnly === true;
 }
 async function projectStaticPage(outputs, htmlToMarkdown2) {
   return await Promise.all(outputs.map((output) => renderStaticOutput(output, htmlToMarkdown2)));

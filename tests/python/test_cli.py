@@ -44,10 +44,10 @@ def test_interactive_conversion_returns_shared_page_protocol():
     assert "Reactive heading" in result["page"]["cells"][1]["html"]
 
 
-def test_interactive_ui_context_is_build_only_and_keeps_pandoc_markdown():
+def test_interactive_render_context_is_render_only_and_keeps_pandoc_markdown():
     result = convert_markdown(
         """```{python .marimo}
-#| context: ui
+#| context: render
 from IPython.display import display
 
 class Equation:
@@ -61,7 +61,7 @@ display(Equation())
     )
 
     cell = result["page"]["cells"][0]
-    assert cell["options"]["render"]["buildOnly"] is True
+    assert cell["options"]["render"]["renderOnly"] is True
     assert result["buildOutputs"][0]["type"] == "para"
     assert result["buildOutputs"][0]["value"] == "$$x = 1$$ {#eq-x}"
     assert "disabled=True" in result["page"]["app"]["notebookCode"]
@@ -91,7 +91,7 @@ def test_interactive_conversion_marks_cache_hydration(
                             "editor": False,
                             "error": True,
                             "serverOutput": True,
-                            "buildOnly": False,
+                            "renderOnly": False,
                         },
                         "execution": {"enabled": True},
                         "marimo": {"disabled": False, "unparsable": False},
