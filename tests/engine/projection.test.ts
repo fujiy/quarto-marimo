@@ -51,8 +51,27 @@ function page(): CompiledMarimoPage {
   };
 }
 
-Deno.test("projects one app carrier followed by cell references", () => {
-  const projected = projectInteractivePage(page());
+Deno.test("projects one app carrier followed by cell references", async () => {
+  const projected = await projectInteractivePage(
+    page(),
+    [
+      {
+        type: "html",
+        value: "",
+        displayCode: false,
+        code: "",
+        language: "python",
+      },
+      {
+        type: "html",
+        value: "",
+        displayCode: false,
+        code: "",
+        language: "python",
+      },
+    ],
+    (html) => Promise.resolve(html),
+  );
   const first = decodePayload(projected[0]);
   const second = decodePayload(projected[1]);
 
@@ -62,6 +81,42 @@ Deno.test("projects one app carrier followed by cell references", () => {
   assertEquals(second.cell.index, 1);
   assertEquals("output" in first.cell, false);
   assertEquals("output" in second.cell, false);
+});
+
+Deno.test("projects build-only output through Pandoc and keeps the app carrier", async () => {
+  const value = page();
+  value.cells[0].options = {
+    ...value.cells[0].options,
+    render: {
+      ...value.cells[0].options.render,
+      buildOnly: true,
+    } as typeof value.cells[0]["options"]["render"],
+  };
+
+  const projected = await projectInteractivePage(
+    value,
+    [
+      {
+        type: "para",
+        value: "$$x = 1$$ {#eq-x}",
+        displayCode: false,
+        code: "equation()",
+        language: "python",
+      },
+      {
+        type: "html",
+        value: "",
+        displayCode: false,
+        code: "",
+        language: "python",
+      },
+    ],
+    (html) => Promise.resolve(html),
+  );
+
+  assertStringIncludes(projected[0], "$$x = 1$$ {#eq-x}");
+  assertEquals(projected[0].includes("data-marimo-payload"), false);
+  assertEquals(decodePayload(projected[1]).app?.id, "marimo-page");
 });
 
 Deno.test("preserves verbatim source and plain-text output", async () => {

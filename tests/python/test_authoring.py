@@ -94,6 +94,12 @@ def test_page_execution_options_are_protocol_patches():
     }
 
 
+def test_ui_context_marks_a_cell_for_build_only_projection():
+    options = execution_options_patch({"context": "ui"})
+
+    assert options == {"render": {"buildOnly": True}}
+
+
 def test_sql_class_fence_is_normalized_for_marimo_parser():
     markdown = '```{sql .marimo query="summary"}\nSELECT 1\n```'
 

@@ -30,6 +30,7 @@ export type MarimoExecution =
     kind: "page";
     page: CompiledMarimoPage;
     cacheHydration: boolean;
+    buildOutputs: StaticMarimoOutput[];
   }
   | { kind: "static"; outputs: StaticMarimoOutput[] };
 
@@ -206,11 +207,14 @@ function isPageExecution(
   kind: "page";
   page: CompiledMarimoPage;
   cacheHydration: boolean;
+  buildOutputs: StaticMarimoOutput[];
 } {
   return (
     isRecord(value) &&
     value.kind === "page" &&
     typeof value.cacheHydration === "boolean" &&
+    Array.isArray(value.buildOutputs) &&
+    value.buildOutputs.every(isStaticOutput) &&
     isCompiledMarimoPage(value.page)
   );
 }

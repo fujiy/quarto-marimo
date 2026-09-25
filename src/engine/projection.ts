@@ -8,10 +8,45 @@ import {
 import type { StaticMarimoOutput } from "./process.ts";
 import { MARIMO_ELEMENT_NAME } from "../island-element.ts";
 
-export function projectInteractivePage(page: CompiledMarimoPage): string[] {
-  return projectPageCellPayloads(page).map((payload) =>
-    payload ? rawHtml(renderIsland(payload)) : ""
+export async function projectInteractivePage(
+  page: CompiledMarimoPage,
+  buildOutputs: StaticMarimoOutput[],
+  htmlToMarkdown: (html: string) => Promise<string>,
+): Promise<string[]> {
+  if (buildOutputs.length !== page.cells.length) {
+    throw new Error("marimo compiler returned mismatched build outputs");
+  }
+  const runtimePage: CompiledMarimoPage = {
+    ...page,
+    cells: page.cells.map((cell) =>
+      isBuildOnly(cell)
+        ? {
+          ...cell,
+          options: {
+            ...cell.options,
+            render: { ...cell.options.render, include: false },
+          },
+        }
+        : cell
+    ),
+  };
+  const payloads = projectPageCellPayloads(runtimePage);
+  return await Promise.all(
+    page.cells.map((cell, index) =>
+      isBuildOnly(cell)
+        ? renderStaticOutput(buildOutputs[index], htmlToMarkdown)
+        : Promise.resolve(
+          payloads[index] ? rawHtml(renderIsland(payloads[index])) : "",
+        )
+    ),
   );
+}
+
+function isBuildOnly(cell: CompiledMarimoPage["cells"][number]): boolean {
+  const render = cell.options.render as typeof cell.options.render & {
+    buildOnly?: unknown;
+  };
+  return render.buildOnly === true;
 }
 
 export async function projectStaticPage(

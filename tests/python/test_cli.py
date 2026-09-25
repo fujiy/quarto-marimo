@@ -38,9 +38,33 @@ def test_interactive_conversion_returns_shared_page_protocol():
 
     assert result["kind"] == "page"
     assert result["cacheHydration"] is False
+    assert len(result["buildOutputs"]) == 2
     assert result["page"]["protocolVersion"] == 2
     assert len(result["page"]["cells"]) == 2
     assert "Reactive heading" in result["page"]["cells"][1]["html"]
+
+
+def test_interactive_ui_context_is_build_only_and_keeps_pandoc_markdown():
+    result = convert_markdown(
+        """```{python .marimo}
+#| context: ui
+from IPython.display import display
+
+class Equation:
+    def _repr_mimebundle_(self, **_kwargs):
+        return {"text/markdown": r"$$x = 1$$ {#eq-x}"}
+
+display(Equation())
+```""",
+        filename="page.qmd",
+        interactive=True,
+    )
+
+    cell = result["page"]["cells"][0]
+    assert cell["options"]["render"]["buildOnly"] is True
+    assert result["buildOutputs"][0]["type"] == "para"
+    assert result["buildOutputs"][0]["value"] == "$$x = 1$$ {#eq-x}"
+    assert "disabled=True" in result["page"]["app"]["notebookCode"]
 
 
 def test_interactive_conversion_marks_cache_hydration(
@@ -51,7 +75,32 @@ def test_interactive_conversion_marks_cache_hydration(
 
     async def compile_page(value: dict[str, object], **_kwargs: object):
         payload.update(value)
-        return {"compiled": True}
+        return {
+            "protocolVersion": 2,
+            "app": None,
+            "cells": [
+                {
+                    "index": 0,
+                    "html": "",
+                    "options": {
+                        "language": "python",
+                        "render": {
+                            "source": False,
+                            "output": True,
+                            "include": True,
+                            "editor": False,
+                            "error": True,
+                            "serverOutput": True,
+                            "buildOnly": False,
+                        },
+                        "execution": {"enabled": True},
+                        "marimo": {"disabled": False, "unparsable": False},
+                    },
+                    "output": None,
+                }
+            ],
+            "diagnostics": [],
+        }
 
     monkeypatch.setattr(cli, "compile_page", compile_page)
     monkeypatch.setattr(cli, "ensure_runtime_assets", lambda *_args, **_kwargs: None)

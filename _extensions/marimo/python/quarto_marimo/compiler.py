@@ -52,6 +52,7 @@ DEFAULT_CELL_OPTIONS: dict[str, Any] = {
         "editor": False,
         "error": True,
         "serverOutput": True,
+        "buildOnly": False,
     },
     "execution": {"enabled": True},
     "marimo": {"disabled": False, "unparsable": False},
@@ -86,6 +87,7 @@ class PlannedCell:
     display_editor: bool
     display_output: bool
     display_server_output: bool
+    build_only: bool
     start_line: int | None
 
 
@@ -222,6 +224,7 @@ def plan_cell(
         display_editor=display_editor,
         display_output=display_output,
         display_server_output=display_server_output,
+        build_only=False if setup else as_bool(render.get("buildOnly")),
         start_line=(
             int(cell["startLine"])
             if isinstance(cell.get("startLine"), int)
@@ -342,35 +345,37 @@ def cell_name(plan: PlannedCell) -> str:
     return str(name) if isinstance(name, str) and is_valid_identifier(name) else "_"
 
 
-def cell_config(plan: PlannedCell) -> dict[str, Any]:
+def cell_config(plan: PlannedCell, *, browser: bool = False) -> dict[str, Any]:
     config: dict[str, Any] = {}
     column = plan.options.get("column")
     if isinstance(column, int):
         config["column"] = column
-    if not plan.execute:
+    if not plan.execute or (browser and plan.build_only):
         config["disabled"] = True
     return config
 
 
-def ir_cell(plan: PlannedCell) -> CellDef:
+def ir_cell(plan: PlannedCell, *, browser: bool = False) -> CellDef:
     marimo_options = as_dict(plan.options.get("marimo"))
     cell_type = UnparsableCell if as_bool(marimo_options.get("unparsable")) else CellDef
     code = plan.code if cell_type is UnparsableCell else plan.executable_source
     return cell_type(
         code=code,
         name=cell_name(plan),
-        options=cell_config(plan),
+        options=cell_config(plan, browser=browser),
     )
 
 
-def to_marimo_ir(request: PageRequest) -> NotebookSerializationV1:
+def to_marimo_ir(
+    request: PageRequest, *, browser: bool = False
+) -> NotebookSerializationV1:
     # The source path remains available for diagnostics and runtime metadata.
     # The generated notebook uses no filename because publishing source files
     # are not necessarily valid marimo notebook filenames.
     return NotebookSerializationV1(
         app=AppInstantiation(options={}),
         filename=None,
-        cells=[ir_cell(plan) for plan in request.runtime_cells],
+        cells=[ir_cell(plan, browser=browser) for plan in request.runtime_cells],
     )
 
 
@@ -745,6 +750,7 @@ async def compile_page(
 ) -> dict[str, Any]:
     request = page_request(payload)
     notebook = to_marimo_ir(request)
+    browser_notebook = to_marimo_ir(request, browser=True)
     cache_output_dir: Path | None = None
     if request.pyproject and cache_cells_enabled(request.pyproject):
         requested_output = payload.get("cacheOutputDirectory")
@@ -759,7 +765,7 @@ async def compile_page(
         generator = generator_from_ir(notebook, request)
         return await _compile_page_generator(
             request,
-            notebook,
+            browser_notebook,
             generator,
             development_url=development_url,
             version_override=version_override,
@@ -772,7 +778,7 @@ async def compile_page(
         generator = generator_from_ir(notebook, request, filepath=cache_notebook)
         return await _compile_page_generator(
             request,
-            notebook,
+            browser_notebook,
             generator,
             cache_output_dir=cache_output_dir,
             development_url=development_url,
@@ -782,7 +788,7 @@ async def compile_page(
 
 async def _compile_page_generator(
     request: PageRequest,
-    notebook: NotebookSerializationV1,
+    browser_notebook: NotebookSerializationV1,
     generator: MarimoIslandGenerator,
     *,
     cache_output_dir: Path | None = None,
@@ -816,7 +822,7 @@ async def _compile_page_generator(
         "id": request.app_id,
         "runtimeCellCount": len(runtime_cells),
         "assets": assets,
-        "notebookCode": browser_notebook_code(notebook, request.pyproject),
+        "notebookCode": browser_notebook_code(browser_notebook, request.pyproject),
     }
     return {
         "protocolVersion": PAGE_PROTOCOL_VERSION,

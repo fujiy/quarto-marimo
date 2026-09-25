@@ -235,7 +235,11 @@ const marimoEngineDiscovery: ExecutionEngineDiscovery = {
       );
       const marimoCells = chunks.cells.filter(isMarimoCell);
       const projected = execution.kind === "page"
-        ? projectInteractivePage(execution.page)
+        ? await projectInteractivePage(
+          execution.page,
+          execution.buildOutputs,
+          htmlToMarkdown,
+        )
         : await projectStaticPage(execution.outputs, htmlToMarkdown);
       validateProjectionCount(projected, marimoCells.length);
 

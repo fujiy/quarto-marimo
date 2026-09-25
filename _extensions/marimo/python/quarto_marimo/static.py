@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from html.parser import HTMLParser
 from typing import Any
 
 from quarto_marimo.authoring import as_bool
@@ -73,6 +74,8 @@ def render_static_cell(
     if mimetype == "text/markdown":
         return {"type": "para", "value": str(output.data), **base}
     if mimetype == "text/html":
+        if markdown := embedded_markdown(str(output.data)):
+            return {"type": "para", "value": markdown, **base}
         return {"type": "html", "value": str(output.data), **base}
     if mimetype in {
         "application/vnd.marimo+error",
@@ -113,6 +116,37 @@ def image_source(mimetype: str, value: Any) -> str:
     if source.startswith(("data:", "http://", "https://", "./", "../")):
         return source
     return f"data:{mimetype};base64,{source}"
+
+
+class _MimeRendererParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.markdown: list[str] = []
+
+    def handle_starttag(
+        self, tag: str, attrs: list[tuple[str, str | None]]
+    ) -> None:
+        if tag != "marimo-mime-renderer":
+            return
+        values = {key: value for key, value in attrs}
+        try:
+            mimetype = json.loads(values.get("data-mime") or "null")
+            bundle = json.loads(values.get("data-data") or "null")
+        except json.JSONDecodeError:
+            return
+        if (
+            mimetype == "application/vnd.marimo+mimebundle"
+            and isinstance(bundle, dict)
+            and isinstance(bundle.get("text/markdown"), str)
+        ):
+            self.markdown.append(bundle["text/markdown"])
+
+
+def embedded_markdown(html: str) -> str | None:
+    """Recover authored Markdown nested in marimo's display container."""
+    parser = _MimeRendererParser()
+    parser.feed(html)
+    return "\n\n".join(parser.markdown) or None
 
 
 def error_message(value: Any) -> str:

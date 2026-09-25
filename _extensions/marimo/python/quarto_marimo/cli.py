@@ -98,11 +98,13 @@ def interactive_export(
                 version_override=os.environ.get("QUARTO_MARIMO_VERSION"),
             )
         )
+        compiled_page = CompiledMarimoPage.from_json(page)
         return SafeWrap(
             {
                 "kind": "page",
                 "page": page,
                 "cacheHydration": cache_enabled,
+                "buildOutputs": render_static_page(request, compiled_page),
             }
         )
 

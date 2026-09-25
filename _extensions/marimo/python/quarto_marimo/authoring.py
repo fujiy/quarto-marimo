@@ -149,6 +149,8 @@ def execution_options_patch(options: JsonObject) -> JsonObject:
         render["source"] = True
     if "eval" in options:
         execution["enabled"] = as_bool(options["eval"])
+    if str(options.get("context") or "").strip().lower() == "ui":
+        render["buildOnly"] = True
 
     patch: JsonObject = {}
     if render:
