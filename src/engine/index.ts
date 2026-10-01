@@ -34,6 +34,7 @@ import {
   validateProjectionCount,
 } from "./projection.ts";
 import { runMarimoCompiler } from "./process.ts";
+import { precompiledExecution } from "./precompile.ts";
 
 let quarto: QuartoAPI;
 
@@ -160,19 +161,21 @@ const marimoEngineDiscovery: ExecutionEngineDiscovery = {
           outputFile,
         )
         : undefined;
+      const request = {
+        moduleUrl: import.meta.url,
+        source: options.target.markdown.value,
+        input: options.target.input,
+        interactive,
+        globalEval: options.target.metadata.eval !== false,
+        externalEnv: options.target.metadata["external-env"] === true,
+        pyproject: String(options.target.metadata.pyproject ?? ""),
+        pageResourceDirectory: resourcePaths?.supportingDirectory,
+      };
       const execution = await quarto.console.withSpinner(
         { message: "Executing marimo cells..." },
         async () =>
-          await runMarimoCompiler(quarto, {
-            moduleUrl: import.meta.url,
-            source: options.target.markdown.value,
-            input: options.target.input,
-            interactive,
-            globalEval: options.target.metadata.eval !== false,
-            externalEnv: options.target.metadata["external-env"] === true,
-            pyproject: String(options.target.metadata.pyproject ?? ""),
-            pageResourceDirectory: resourcePaths?.supportingDirectory,
-          }),
+          await precompiledExecution(quarto, options, request) ??
+            await runMarimoCompiler(quarto, request),
       );
       const supporting: string[] = [];
       let resourceFiles: string[] | undefined;

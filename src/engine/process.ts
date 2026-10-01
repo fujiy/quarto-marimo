@@ -17,6 +17,18 @@ const pythonUtf8Environment: Record<string, string> = {
   PYTHONIOENCODING: "utf-8",
 };
 
+export type CompilerOptions = {
+  moduleUrl: string;
+  source: string;
+  input: string;
+  interactive: boolean;
+  globalEval: boolean;
+  externalEnv: boolean;
+  pyproject: string;
+  pageResourceDirectory?: string;
+  signal?: AbortSignal;
+};
+
 export type StaticMarimoOutput = {
   type: "html" | "figure" | "para" | "plain" | "blockquote";
   value: string;
@@ -36,16 +48,7 @@ export type MarimoExecution =
 
 export async function runMarimoCompiler(
   quarto: QuartoAPI,
-  options: {
-    moduleUrl: string;
-    source: string;
-    input: string;
-    interactive: boolean;
-    globalEval: boolean;
-    externalEnv: boolean;
-    pyproject: string;
-    pageResourceDirectory?: string;
-  },
+  options: CompilerOptions,
 ): Promise<MarimoExecution> {
   const extensionDir = dirname(fromFileUrl(options.moduleUrl));
   const extractPath = join(extensionDir, "python", "extract.py");
@@ -77,7 +80,15 @@ export async function runMarimoCompiler(
 
   let output: string;
   try {
-    output = await executeProcess(quarto, command, args, options.source);
+    output = await executeProcess(
+      quarto,
+      command,
+      args,
+      options.source,
+      compilerTimeoutMs(),
+      undefined,
+      options.signal,
+    );
   } finally {
     if (temporaryDirectory) {
       await removeTemporaryDirectory(temporaryDirectory);
@@ -133,7 +144,9 @@ export async function executeProcess(
   stdin: string,
   timeoutMs = compilerTimeoutMs(),
   env?: Record<string, string>,
+  signal?: AbortSignal,
 ): Promise<string> {
+  signal?.throwIfAborted();
   const child = new Deno.Command(command, {
     args,
     env: { ...pythonUtf8Environment, ...env },
@@ -141,6 +154,12 @@ export async function executeProcess(
     stdout: "piped",
     stderr: "piped",
   }).spawn();
+  const abort = () => {
+    try {
+      child.kill("SIGTERM");
+    } catch { /* Process already exited. */ }
+  };
+  signal?.addEventListener("abort", abort, { once: true });
   const outputPromise = child.output();
   const writer = child.stdin.getWriter();
   let timedOut = false;
@@ -164,7 +183,9 @@ export async function executeProcess(
     throw timeoutError(command, args, timeoutMs);
   } finally {
     clearTimeout(timeout);
+    signal?.removeEventListener("abort", abort);
   }
+  signal?.throwIfAborted();
   if (timedOut) throw timeoutError(command, args, timeoutMs);
   const stderr = new TextDecoder().decode(output.stderr);
   if (stderr) quarto.console.info(stderr.trim());

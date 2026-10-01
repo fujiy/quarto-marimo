@@ -114,6 +114,7 @@ Quarto engine types, Pandoc output, or Quarto theme classes.
 | `QUARTO_MARIMO_DEBUG_ENDPOINT` | Load marimo runtime assets from an absolute development server URL. |
 | `QUARTO_MARIMO_TIMEOUT_SECONDS` | Set the compiler subprocess timeout. The default is 300 seconds. |
 | `MARIMO_NO_JS` | Marks static compilation for marimo. The Python entry point sets it from the requested output mode. |
+| `QUARTO_MARIMO_PRECOMPILE_MANIFEST` | Host-provided JSON path outside the project, containing `jobs` and `pages` (`input`, `revision`). Enables session-local lookahead compilation for external-environment HTML pages. |
 
 ## Authoring options
 

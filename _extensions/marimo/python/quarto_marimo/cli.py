@@ -137,6 +137,12 @@ def static_export(
 
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
+    if args == ["--prepare-runtime"]:
+        ensure_runtime_assets(
+            Path(__file__).resolve().parents[2],
+            version_override=os.environ.get("QUARTO_MARIMO_VERSION"),
+        )
+        return 0
     if len(args) not in (2, 3, 4):
         raise ValueError(
             "expected reference file, output mode, optional eval mode, "

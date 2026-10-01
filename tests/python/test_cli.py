@@ -215,3 +215,15 @@ def test_main_reads_utf8_stdin_under_a_non_utf8_locale(monkeypatch):
     result = json.loads(stdout.buffer.getvalue().decode("utf-8"))
     assert result["kind"] == "static"
     assert "こんにちわ" in result["outputs"][0]["value"]
+
+
+def test_runtime_preparation_does_not_execute_a_page(monkeypatch):
+    from unittest.mock import Mock
+
+    from quarto_marimo import cli
+
+    prepare = Mock()
+    monkeypatch.setattr(cli, "ensure_runtime_assets", prepare)
+    monkeypatch.setattr(cli, "convert_markdown", Mock(side_effect=AssertionError("must not execute cells")))
+    assert cli.main(["--prepare-runtime"]) == 0
+    prepare.assert_called_once()

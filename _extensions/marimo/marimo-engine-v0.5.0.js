@@ -1233,7 +1233,7 @@ async function runMarimoCompiler(quarto2, options) {
   }
   let output;
   try {
-    output = await executeProcess(quarto2, command, args, options.source);
+    output = await executeProcess(quarto2, command, args, options.source, compilerTimeoutMs(), void 0, options.signal);
   } finally {
     if (temporaryDirectory) {
       await removeTemporaryDirectory(temporaryDirectory);
@@ -1272,7 +1272,8 @@ async function constructUvCommand(quarto2, extensionDir, pyproject) {
     throw error;
   }
 }
-async function executeProcess(quarto2, command, args, stdin, timeoutMs = compilerTimeoutMs(), env) {
+async function executeProcess(quarto2, command, args, stdin, timeoutMs = compilerTimeoutMs(), env, signal) {
+  signal?.throwIfAborted();
   const child = new Deno.Command(command, {
     args,
     env: {
@@ -1283,6 +1284,15 @@ async function executeProcess(quarto2, command, args, stdin, timeoutMs = compile
     stdout: "piped",
     stderr: "piped"
   }).spawn();
+  const abort = () => {
+    try {
+      child.kill("SIGTERM");
+    } catch {
+    }
+  };
+  signal?.addEventListener("abort", abort, {
+    once: true
+  });
   const outputPromise = child.output();
   const writer = child.stdin.getWriter();
   let timedOut = false;
@@ -1304,7 +1314,9 @@ async function executeProcess(quarto2, command, args, stdin, timeoutMs = compile
     throw timeoutError(command, args, timeoutMs);
   } finally {
     clearTimeout(timeout);
+    signal?.removeEventListener("abort", abort);
   }
+  signal?.throwIfAborted();
   if (timedOut) throw timeoutError(command, args, timeoutMs);
   const stderr = new TextDecoder().decode(output.stderr);
   if (stderr) quarto2.console.info(stderr.trim());
@@ -1339,6 +1351,229 @@ function isStaticOutput(value) {
 }
 function isRecord2(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+// src/engine/precompile.ts
+var CompilerQueue = class {
+  limit;
+  jobs;
+  waiting;
+  active;
+  closed;
+  constructor(limit) {
+    this.limit = limit;
+    this.jobs = /* @__PURE__ */ new Map();
+    this.waiting = [];
+    this.active = 0;
+    this.closed = false;
+    if (!Number.isInteger(limit) || limit < 1) {
+      throw new Error("compiler jobs must be positive");
+    }
+  }
+  submit(input, key, run, urgent = false) {
+    if (this.closed) {
+      return Promise.reject(new Error("compiler queue is closed"));
+    }
+    let job = this.jobs.get(key);
+    if (!job) {
+      for (const [oldKey, old] of this.jobs) {
+        if (old.input === input) {
+          old.controller.abort();
+          this.jobs.delete(oldKey);
+        }
+      }
+      let finish;
+      const result = new Promise((r) => {
+        finish = r;
+      });
+      job = {
+        key,
+        input,
+        controller: new AbortController(),
+        run,
+        resolve: finish,
+        result
+      };
+      this.jobs.set(key, job);
+      this.waiting.push(job);
+    }
+    if (urgent) {
+      const index = this.waiting.indexOf(job);
+      if (index >= 0) {
+        this.waiting.splice(index, 1);
+        this.waiting.unshift(job);
+      }
+    }
+    this.pump();
+    return job.result.then((outcome) => {
+      if ("error" in outcome) throw outcome.error;
+      return outcome.value;
+    });
+  }
+  close() {
+    this.closed = true;
+    for (const job of this.jobs.values()) job.controller.abort();
+    for (const job of this.waiting) {
+      job.resolve({
+        error: new Error("compiler queue stopped")
+      });
+    }
+    this.waiting = [];
+  }
+  pump() {
+    while (!this.closed && this.active < this.limit && this.waiting.length) {
+      const job = this.waiting.shift();
+      if (job.controller.signal.aborted) {
+        job.resolve({
+          error: new Error("compiler request superseded")
+        });
+        continue;
+      }
+      this.active++;
+      Promise.resolve().then(() => job.run(job.controller.signal)).then((value) => job.resolve({
+        value
+      }), (error) => job.resolve({
+        error
+      })).finally(() => {
+        this.active--;
+        this.pump();
+      });
+    }
+  }
+};
+var sessions = /* @__PURE__ */ new Map();
+async function precompiledExecution(quarto2, options, request) {
+  const manifest = Deno.env.get("QUARTO_MARIMO_PRECOMPILE_MANIFEST");
+  if (!manifest || !request.interactive || !request.externalEnv || !options.project) return void 0;
+  const sessionKey = resolve3(manifest);
+  let session = sessions.get(sessionKey);
+  if (!session) {
+    session = Precompiler.create(quarto2, options.project, manifest, request);
+    sessions.set(sessionKey, session);
+  }
+  return (await session).execute(request);
+}
+var Precompiler = class _Precompiler {
+  quarto;
+  project;
+  manifestPath;
+  scratch;
+  seeded;
+  queue;
+  manifest;
+  constructor(quarto2, project, manifestPath, scratch, manifest) {
+    this.quarto = quarto2;
+    this.project = project;
+    this.manifestPath = manifestPath;
+    this.scratch = scratch;
+    this.seeded = false;
+    this.manifest = manifest;
+    this.queue = new CompilerQueue(manifest.jobs);
+  }
+  static async create(quarto2, project, path, request) {
+    const manifest = JSON.parse(await Deno.readTextFile(path));
+    const scratch = await Deno.makeTempDir({
+      prefix: "quarto-marimo-precompile-"
+    });
+    const session = new _Precompiler(quarto2, project, path, scratch, manifest);
+    quarto2.system.onCleanup(async () => {
+      session.queue.close();
+      await Deno.remove(scratch, {
+        recursive: true
+      }).catch(() => {
+      });
+    });
+    const extension = dirname3(fromFileUrl3(request.moduleUrl));
+    await executeProcess(quarto2, Deno.env.get("QUARTO_PYTHON") || "python", [
+      join3(extension, "python", "extract.py"),
+      "--prepare-runtime"
+    ], "");
+    return session;
+  }
+  async execute(request) {
+    this.manifest = JSON.parse(await Deno.readTextFile(this.manifestPath));
+    const page = this.page(request.input);
+    if (!page) return void 0;
+    const current = this.schedule(request, page.revision, true);
+    current.catch(() => {
+    });
+    if (!this.seeded) {
+      this.seeded = true;
+      for (const next of this.manifest.pages) {
+        const input = resolve3(this.project.dir, next.input);
+        if (input === resolve3(request.input)) continue;
+        const markdown = await this.project.resolveFullMarkdownForFile(void 0, input);
+        if (!containsMarimoFence(markdown.value)) continue;
+        const metadata = this.quarto.markdownRegex.extractYaml(markdown.value);
+        if (metadata["external-env"] !== true) continue;
+        const speculative = {
+          ...request,
+          input,
+          source: markdown.value,
+          globalEval: metadata.eval !== false,
+          externalEnv: true,
+          pyproject: String(metadata.pyproject ?? ""),
+          pageResourceDirectory: void 0
+        };
+        this.schedule(speculative, next.revision).catch(() => {
+        });
+      }
+    }
+    const compiled = await current;
+    if (request.pageResourceDirectory) {
+      await Deno.remove(join3(request.pageResourceDirectory, "public", "cache"), {
+        recursive: true
+      }).catch((error) => {
+        if (!(error instanceof Deno.errors.NotFound)) throw error;
+      });
+      await copyTree(compiled.artifacts, request.pageResourceDirectory);
+    }
+    return structuredClone(compiled.execution);
+  }
+  page(input) {
+    return this.manifest.pages.find((page) => page.input === relative3(this.project.dir, resolve3(input)).split("\\").join("/"));
+  }
+  async schedule(request, revision, urgent = false) {
+    const signature = JSON.stringify({
+      input: resolve3(request.input),
+      source: request.source,
+      interactive: request.interactive,
+      globalEval: request.globalEval,
+      externalEnv: request.externalEnv,
+      pyproject: request.pyproject,
+      revision
+    });
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(signature));
+    const key = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+    return this.queue.submit(resolve3(request.input), key, async (signal) => {
+      const artifacts = join3(this.scratch, key);
+      await Deno.mkdir(artifacts, {
+        recursive: true
+      });
+      const start = performance.now();
+      this.quarto.console.info(`marimo compile start: ${this.page(request.input)?.input ?? request.input}`);
+      const execution = await runMarimoCompiler(this.quarto, {
+        ...request,
+        pageResourceDirectory: artifacts,
+        signal
+      });
+      this.quarto.console.info(`marimo compile done: ${this.page(request.input)?.input ?? request.input} (${((performance.now() - start) / 1e3).toFixed(2)}s)`);
+      return {
+        execution,
+        artifacts
+      };
+    }, urgent);
+  }
+};
+async function copyTree(source, destination) {
+  await Deno.mkdir(destination, {
+    recursive: true
+  });
+  for await (const entry of Deno.readDir(source)) {
+    const from = join3(source, entry.name), to = join3(destination, entry.name);
+    if (entry.isDirectory) await copyTree(from, to);
+    else if (entry.isFile) await Deno.copyFile(from, to);
+  }
 }
 
 // src/engine/index.ts
@@ -1440,9 +1675,7 @@ var marimoEngineDiscovery = {
       const canUsePageResources = interactive && !Deno.env.get("QUARTO_MARIMO_DEBUG_ENDPOINT");
       const outputFile = outputFileMetadata(options);
       const resourcePaths = canUsePageResources ? pageResourcePaths(options.project.dir, options.target.input, outputFile) : void 0;
-      const execution = await quarto.console.withSpinner({
-        message: "Executing marimo cells..."
-      }, async () => await runMarimoCompiler(quarto, {
+      const request = {
         moduleUrl: import.meta.url,
         source: options.target.markdown.value,
         input: options.target.input,
@@ -1451,7 +1684,10 @@ var marimoEngineDiscovery = {
         externalEnv: options.target.metadata["external-env"] === true,
         pyproject: String(options.target.metadata.pyproject ?? ""),
         pageResourceDirectory: resourcePaths?.supportingDirectory
-      }));
+      };
+      const execution = await quarto.console.withSpinner({
+        message: "Executing marimo cells..."
+      }, async () => await precompiledExecution(quarto, options, request) ?? await runMarimoCompiler(quarto, request));
       const supporting = [];
       let resourceFiles;
       if (execution.kind === "page" && execution.cacheHydration && resourcePaths && execution.page.app) {
