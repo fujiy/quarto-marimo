@@ -1440,9 +1440,7 @@ var marimoEngineDiscovery = {
       const canUsePageResources = interactive && !Deno.env.get("QUARTO_MARIMO_DEBUG_ENDPOINT");
       const outputFile = outputFileMetadata(options);
       const resourcePaths = canUsePageResources ? pageResourcePaths(options.project.dir, options.target.input, outputFile) : void 0;
-      const execution = await quarto.console.withSpinner({
-        message: "Executing marimo cells..."
-      }, async () => await runMarimoCompiler(quarto, {
+      const execution = await runMarimoCompiler(quarto, {
         moduleUrl: import.meta.url,
         source: options.target.markdown.value,
         input: options.target.input,
@@ -1451,7 +1449,7 @@ var marimoEngineDiscovery = {
         externalEnv: options.target.metadata["external-env"] === true,
         pyproject: String(options.target.metadata.pyproject ?? ""),
         pageResourceDirectory: resourcePaths?.supportingDirectory
-      }));
+      });
       const supporting = [];
       let resourceFiles;
       if (execution.kind === "page" && execution.cacheHydration && resourcePaths && execution.page.app) {

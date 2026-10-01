@@ -160,20 +160,16 @@ const marimoEngineDiscovery: ExecutionEngineDiscovery = {
           outputFile,
         )
         : undefined;
-      const execution = await quarto.console.withSpinner(
-        { message: "Executing marimo cells..." },
-        async () =>
-          await runMarimoCompiler(quarto, {
-            moduleUrl: import.meta.url,
-            source: options.target.markdown.value,
-            input: options.target.input,
-            interactive,
-            globalEval: options.target.metadata.eval !== false,
-            externalEnv: options.target.metadata["external-env"] === true,
-            pyproject: String(options.target.metadata.pyproject ?? ""),
-            pageResourceDirectory: resourcePaths?.supportingDirectory,
-          }),
-      );
+      const execution = await runMarimoCompiler(quarto, {
+        moduleUrl: import.meta.url,
+        source: options.target.markdown.value,
+        input: options.target.input,
+        interactive,
+        globalEval: options.target.metadata.eval !== false,
+        externalEnv: options.target.metadata["external-env"] === true,
+        pyproject: String(options.target.metadata.pyproject ?? ""),
+        pageResourceDirectory: resourcePaths?.supportingDirectory,
+      });
       const supporting: string[] = [];
       let resourceFiles: string[] | undefined;
       if (
