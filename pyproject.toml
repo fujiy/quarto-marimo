@@ -8,7 +8,7 @@ description = "Reactive marimo cells for Quarto documents."
 dynamic = ["version"]
 dependencies = [
     # for marimo
-    "marimo==0.23.16",
+    "marimo==0.25.0",
     # quarto itself
     "quarto",
     # uv is used in the script calls
@@ -58,7 +58,7 @@ refresh = "./docs/scripts/update_tutorials.sh"
 test = "make test"
 
 [tool.pixi.dependencies]
-marimo = "==0.23.16"
+marimo = "==0.25.0"
 tomli = ">=2"
 pandoc = ">=3.4,<4"
 pyyaml = ">=6.0.2,<7"

@@ -21,7 +21,7 @@ from quarto_marimo.runtime_assets import (
 def manifest(source: str, worker: str = "userConfig:Ls()") -> dict[str, object]:
     return {
         "package": "@marimo-team/islands",
-        "version": "0.23.16",
+        "version": "0.25.0",
         "mainSha256": hashlib.sha256(source.encode()).hexdigest(),
         "expectedWorkerFactory": "blob-worker-factory",
         "patchedWorkerFactory": "url-worker-factory",

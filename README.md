@@ -17,7 +17,7 @@ The extension compiles each document's `.marimo` cells into one marimo app.
 Quarto places each result at its authored position and publishes the surrounding
 document.
 
-Requires Quarto 1.9.20 or newer, Python 3.10 or newer, and marimo 0.23.16.
+Requires Quarto 1.9.20 or newer, Python 3.10 or newer, and marimo 0.25.0.
 
 ## Quick start
 
@@ -150,7 +150,7 @@ Quarto executes the cells in the build environment and writes marimo's cache
 under `<page>_files/public/cache/`. The browser restores cached values and runs
 cells invalidated by later UI changes. If a cached value is unavailable,
 marimo follows its normal cache-miss behavior, including surfacing execution
-errors. Cache hydration is pinned to marimo 0.23.16; `QUARTO_MARIMO_VERSION`
+errors. Cache hydration is pinned to marimo 0.25.0; `QUARTO_MARIMO_VERSION`
 cannot select a different runtime for a cached page.
 The first cache-enabled render fetches the pinned official islands tarball from
 npm, verifies its integrity, and reuses the download from the XDG cache later.
@@ -187,7 +187,7 @@ make render
 
 The browser cache integration test is opt-in. Build and render
 `tests/fixtures/cache-hydration` with this checkout's extension and a Python
-environment containing marimo 0.23.16 and NumPy. Set `QUARTO_PYTHON` to that
+environment containing marimo 0.25.0 and NumPy. Set `QUARTO_PYTHON` to that
 interpreter for the render, then run:
 
 ```bash
