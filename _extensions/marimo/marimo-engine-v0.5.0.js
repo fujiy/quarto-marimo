@@ -1207,6 +1207,20 @@ var pythonUtf8Environment = {
   PYTHONUTF8: "1",
   PYTHONIOENCODING: "utf-8"
 };
+async function marimoExecutionIdentity(quarto2, options) {
+  const extractPath = join3(dirname3(fromFileUrl3(options.moduleUrl)), "python", "extract.py");
+  const output = await executeProcess(quarto2, Deno.env.get("QUARTO_PYTHON") || "python", [
+    extractPath,
+    options.input,
+    "identity",
+    options.globalEval ? "yes" : "no"
+  ], options.source);
+  const value = JSON.parse(output);
+  if (typeof value?.identity !== "string" || !value.identity) {
+    throw new TypeError("marimo collector returned an invalid execution identity");
+  }
+  return value.identity;
+}
 async function runMarimoCompiler(quarto2, options) {
   const extensionDir = dirname3(fromFileUrl3(options.moduleUrl));
   const extractPath = join3(extensionDir, "python", "extract.py");
@@ -1536,7 +1550,9 @@ var Precompiler = class _Precompiler {
   async schedule(request, revision, urgent = false) {
     const signature = JSON.stringify({
       input: resolve3(request.input),
-      source: request.source,
+      // The canonical collector excludes prose and source positions while
+      // retaining setup, cell order, code, and compilation/display options.
+      identity: await marimoExecutionIdentity(this.quarto, request),
       interactive: request.interactive,
       globalEval: request.globalEval,
       externalEnv: request.externalEnv,

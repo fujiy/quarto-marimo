@@ -37,17 +37,29 @@ def convert_markdown(
     global_eval: bool = True,
     cache_output_dir: Path | None = None,
     extension_dir: Path | None = None,
+    identity_only: bool = False,
 ) -> dict[str, Any]:
-    callback = (
-        interactive_export(
+    """Collect a page identity or compile its outputs using the same parser.
+
+    ``identity_only`` returns only ``identity`` and never executes cells or
+    prepares runtime assets. Prose and source positions do not affect identity.
+    """
+
+    def identity_export(root: Element) -> SafeWrap:
+        request = collect_page(root, filename=filename, global_eval=global_eval)
+        return SafeWrap({"identity": request.identity})
+
+    if identity_only:
+        callback = identity_export
+    elif interactive:
+        callback = interactive_export(
             filename=filename,
             global_eval=global_eval,
             cache_output_dir=cache_output_dir,
             extension_dir=extension_dir,
         )
-        if interactive
-        else static_export(filename=filename, global_eval=global_eval)
-    )
+    else:
+        callback = static_export(filename=filename, global_eval=global_eval)
 
     class QuartoMarimoParser(MarimoMdParser):
         output_formats: ClassVar[dict[str, ExportCallback]] = {  # type: ignore[assignment, misc]
@@ -171,6 +183,7 @@ def main(argv: list[str] | None = None) -> int:
                 if resource_dir is not None and interactive
                 else None
             ),
+            identity_only=output_mode.lower() == "identity",
         )
     sys.stdout.buffer.write(json.dumps(result).encode("utf-8"))
     sys.stdout.flush()

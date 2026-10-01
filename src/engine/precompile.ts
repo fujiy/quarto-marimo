@@ -9,6 +9,7 @@ import {
   type CompilerOptions,
   executeProcess,
   type MarimoExecution,
+  marimoExecutionIdentity,
   runMarimoCompiler,
 } from "./process.ts";
 
@@ -233,7 +234,9 @@ class Precompiler {
   ): Promise<Compiled> {
     const signature = JSON.stringify({
       input: resolve(request.input),
-      source: request.source,
+      // The canonical collector excludes prose and source positions while
+      // retaining setup, cell order, code, and compilation/display options.
+      identity: await marimoExecutionIdentity(this.quarto, request),
       interactive: request.interactive,
       globalEval: request.globalEval,
       externalEnv: request.externalEnv,

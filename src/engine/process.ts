@@ -46,6 +46,31 @@ export type MarimoExecution =
   }
   | { kind: "static"; outputs: StaticMarimoOutput[] };
 
+/** Use the compiler's document collector without executing any notebook cells. */
+export async function marimoExecutionIdentity(
+  quarto: QuartoAPI,
+  options: CompilerOptions,
+): Promise<string> {
+  const extractPath = join(
+    dirname(fromFileUrl(options.moduleUrl)),
+    "python",
+    "extract.py",
+  );
+  const output = await executeProcess(
+    quarto,
+    Deno.env.get("QUARTO_PYTHON") || "python",
+    [extractPath, options.input, "identity", options.globalEval ? "yes" : "no"],
+    options.source,
+  );
+  const value = JSON.parse(output);
+  if (typeof value?.identity !== "string" || !value.identity) {
+    throw new TypeError(
+      "marimo collector returned an invalid execution identity",
+    );
+  }
+  return value.identity;
+}
+
 export async function runMarimoCompiler(
   quarto: QuartoAPI,
   options: CompilerOptions,

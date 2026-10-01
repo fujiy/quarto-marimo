@@ -224,6 +224,104 @@ def test_runtime_preparation_does_not_execute_a_page(monkeypatch):
 
     prepare = Mock()
     monkeypatch.setattr(cli, "ensure_runtime_assets", prepare)
-    monkeypatch.setattr(cli, "convert_markdown", Mock(side_effect=AssertionError("must not execute cells")))
+    monkeypatch.setattr(
+        cli,
+        "convert_markdown",
+        Mock(side_effect=AssertionError("must not execute cells")),
+    )
     assert cli.main(["--prepare-runtime"]) == 0
     prepare.assert_called_once()
+
+
+def test_identity_collection_ignores_prose_without_executing_cells(monkeypatch):
+    async def unexpected_compile(*_args: object, **_kwargs: object):
+        raise AssertionError("identity collection must not compile")
+
+    monkeypatch.setattr(cli, "compile_page", unexpected_compile)
+    source = "```{python .marimo}\nraise RuntimeError('must not execute')\n```"
+
+    def identity(text):
+        return convert_markdown(
+            text, filename="page.qmd", interactive=True, identity_only=True
+        )["identity"]
+
+    expected = identity(source)
+    assert identity("# New heading\n\n" + source + "\nChanged prose") == expected
+    assert identity("---\ntitle: New title\n---\n\n" + source) == expected
+    assert identity(source.replace("must not execute", "changed cell")) != expected
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "#| eval: false\n",
+        "#| echo: true\n",
+        "#| context: render\n",
+        "#| include: false\n",
+        "#| disabled: true\n",
+    ],
+)
+def test_identity_collection_invalidates_cell_options(change):
+    source = "```{python .marimo}\nvalue = 1\n```"
+    original = convert_markdown(
+        source, filename="page.qmd", interactive=True, identity_only=True
+    )
+    changed = convert_markdown(
+        source.replace("value = 1", change + "value = 1"),
+        filename="page.qmd",
+        interactive=True,
+        identity_only=True,
+    )
+    assert changed != original
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        "header: |\n  setup_value = 2",
+        'pyproject: |\n  dependencies = ["numpy"]',
+    ],
+)
+def test_identity_collection_invalidates_compiler_metadata(metadata):
+    source = "```{python .marimo}\nvalue = 1\n```"
+    original = convert_markdown(
+        source, filename="page.qmd", interactive=True, identity_only=True
+    )
+    changed = convert_markdown(
+        "---\n" + metadata + "\n---\n" + source,
+        filename="page.qmd",
+        interactive=True,
+        identity_only=True,
+    )
+    assert changed != original
+
+
+def test_identity_collection_invalidates_global_eval():
+    source = "```{python .marimo}\nvalue = 1\n```"
+    original = convert_markdown(
+        source, filename="page.qmd", interactive=True, identity_only=True
+    )
+    changed = convert_markdown(
+        source,
+        filename="page.qmd",
+        interactive=True,
+        identity_only=True,
+        global_eval=False,
+    )
+    assert changed != original
+
+
+def test_identity_collection_invalidates_cell_order_and_markdown_cells():
+    first = "```{python .marimo}\na = 1\n```\n"
+    second = "```{markdown .marimo}\nReactive text\n```\n"
+
+    def identity(text):
+        return convert_markdown(
+            text, filename="page.qmd", interactive=True, identity_only=True
+        )
+
+    assert identity(first + second) != identity(second + first)
+    assert identity(first + second) != identity(first)
+    assert identity(first + second) != identity(
+        first + second.replace("text", "output")
+    )

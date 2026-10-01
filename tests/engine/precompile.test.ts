@@ -1,5 +1,9 @@
 import { assertEquals, assertRejects } from "@std/assert";
-import { CompilerQueue } from "../../src/engine/precompile.ts";
+import type { ExecuteOptions, QuartoAPI } from "@quarto/types";
+import {
+  CompilerQueue,
+  precompiledExecution,
+} from "../../src/engine/precompile.ts";
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((r) => {
@@ -123,4 +127,103 @@ Deno.test("closing aborts running jobs and rejects queued jobs", async () => {
   await started.promise;
   queue.close();
   await Promise.all(failures);
+});
+
+Deno.test({
+  name:
+    "preview reuses compilation for prose and invalidates cells and Python revisions",
+  ignore: Deno.build.os === "windows",
+  async fn() {
+    const directory = await Deno.makeTempDir();
+    const command = `${directory}/python`;
+    const manifest = `${directory}/manifest.json`;
+    const previousPython = Deno.env.get("QUARTO_PYTHON");
+    const previousManifest = Deno.env.get("QUARTO_MARIMO_PRECOMPILE_MANIFEST");
+    const cleanup: (() => Promise<void>)[] = [];
+    try {
+      // Substitute only the subprocess protocol. Python tests exercise the real
+      // collector; this test observes whether preview actually schedules a job.
+      await Deno.writeTextFile(
+        command,
+        `#!/bin/sh
+if [ "$2" = "--prepare-runtime" ]; then exit 0; fi
+source=$(cat)
+if [ "$3" = "identity" ]; then
+  case "$source" in
+    *changed-cell*) printf '%s' '{"identity":"changed"}' ;;
+    *) printf '%s' '{"identity":"original"}' ;;
+  esac
+else
+  printf '%s' '{"kind":"static","outputs":[]}'
+fi
+`,
+      );
+      await Deno.chmod(command, 0o755);
+      Deno.env.set("QUARTO_PYTHON", command);
+      Deno.env.set("QUARTO_MARIMO_PRECOMPILE_MANIFEST", manifest);
+      const writeManifest = (revision: string) =>
+        Deno.writeTextFile(
+          manifest,
+          JSON.stringify({ jobs: 1, pages: [{ input: "page.qmd", revision }] }),
+        );
+      await writeManifest("python-v1");
+      const messages: string[] = [];
+      const quarto = {
+        system: { onCleanup: (fn: () => Promise<void>) => cleanup.push(fn) },
+        console: { info: (message: string) => messages.push(message) },
+      } as unknown as QuartoAPI;
+      const options = { project: { dir: directory } } as ExecuteOptions;
+      const request = {
+        moduleUrl:
+          new URL("../../_extensions/marimo/marimo-engine.js", import.meta.url)
+            .href,
+        input: `${directory}/page.qmd`,
+        source: "original-cell",
+        interactive: true,
+        externalEnv: true,
+        globalEval: true,
+        pyproject: "",
+      };
+      const compileCount = () =>
+        messages.filter((message) =>
+          message.startsWith("marimo compile start:")
+        ).length;
+      await precompiledExecution(quarto, options, request);
+      assertEquals(compileCount(), 1);
+      await precompiledExecution(quarto, options, {
+        ...request,
+        source: "# New heading\n\noriginal-cell\nChanged prose",
+      });
+      assertEquals(compileCount(), 1);
+      await precompiledExecution(quarto, options, {
+        ...request,
+        source: "changed-cell",
+      });
+      assertEquals(compileCount(), 2);
+      await writeManifest("python-v2");
+      await precompiledExecution(quarto, options, {
+        ...request,
+        source: "changed-cell",
+      });
+      assertEquals(compileCount(), 3);
+      await precompiledExecution(quarto, options, {
+        ...request,
+        source: "changed-cell",
+        globalEval: false,
+      });
+      assertEquals(compileCount(), 4);
+    } finally {
+      for (const fn of cleanup) await fn();
+      for (
+        const [name, previous] of [
+          ["QUARTO_PYTHON", previousPython],
+          ["QUARTO_MARIMO_PRECOMPILE_MANIFEST", previousManifest],
+        ]
+      ) {
+        if (previous === undefined) Deno.env.delete(name!);
+        else Deno.env.set(name!, previous);
+      }
+      await Deno.remove(directory, { recursive: true });
+    }
+  },
 });
