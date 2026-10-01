@@ -1,0 +1,29 @@
+pyproject.toml
+  s_940da9b1c0e264::t_ab110ac0863463 11,61
+_extensions/marimo/runtime-patch.json
+  s_940da9b1c0e264::t_ab110ac0863463 3-5,7,10,12,14-15
+README.md
+  s_940da9b1c0e264::t_ab110ac0863463 20,153,190
+tests/python/test_runtime_assets.py
+  s_940da9b1c0e264::t_ab110ac0863463 24
+pixi.lock
+  s_940da9b1c0e264::t_9323894960532d 51,185,287,386,690-692,718,720-721,1573-1575,1601,1603-1604,1998-2000,2026,2028-2029,2409-2411,2437,2439-2440
+uv.lock
+  s_940da9b1c0e264::t_daa8d8009c1dae 572,597,599,1048
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "dd5895aadde6163ecea8d40d8a7e11b859b4ab32",
+  "prompts": {},
+  "sessions": {
+    "s_940da9b1c0e264": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0f75a-79cf-7202-9344-d37e34ac40ed",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Yuki Fujihara <mail@fujiy.dev>"
+    }
+  }
+}
