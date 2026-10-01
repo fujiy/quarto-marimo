@@ -1,0 +1,43 @@
+tests/python/test_authoring.py
+  s_7d128d36982e62::t_79ecd8e758a9da 110-120
+  s_7d128d36982e62::t_1635e9d2ffb8ec 3,98-99,101-107
+  s_3f69533ce0e72c::t_ec4c41dafd6978 108-109
+_extensions/marimo/python/quarto_marimo/compiler.py
+  s_7d128d36982e62::t_1635e9d2ffb8ec 55,90,227,353
+tests/engine/projection.test.ts
+  s_7d128d36982e62::t_1635e9d2ffb8ec 86,92
+tests/python/test_cli.py
+  s_7d128d36982e62::t_1635e9d2ffb8ec 47,50,64,94
+README.md
+  s_7d128d36982e62::t_1635e9d2ffb8ec 94-101
+src/engine/projection.ts
+  s_7d128d36982e62::t_1635e9d2ffb8ec 22,36,45,47,49
+_extensions/marimo/python/quarto_marimo/authoring.py
+  s_7d128d36982e62::t_1635e9d2ffb8ec 18,153-160
+_extensions/marimo/marimo-engine-v0.5.0.js
+  s_7d128d36982e62::t_5cbdb21e87f24a 991,1126,1138,1140,1142
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "08d0ad9aeb39c1645e97103fcba660e209bbdde2",
+  "prompts": {},
+  "sessions": {
+    "s_3f69533ce0e72c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0d6d3-5a79-76f2-98e1-221c9f431dcd",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Yuki Fujihara <mail@fujiy.dev>"
+    },
+    "s_7d128d36982e62": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0d2d2-a1df-7223-8c4b-bc6a5a583e70",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Yuki Fujihara <mail@fujiy.dev>"
+    }
+  }
+}
