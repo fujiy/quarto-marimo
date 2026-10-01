@@ -171,12 +171,8 @@ const marimoEngineDiscovery: ExecutionEngineDiscovery = {
         pyproject: String(options.target.metadata.pyproject ?? ""),
         pageResourceDirectory: resourcePaths?.supportingDirectory,
       };
-      const execution = await quarto.console.withSpinner(
-        { message: "Executing marimo cells..." },
-        async () =>
-          await precompiledExecution(quarto, options, request) ??
-            await runMarimoCompiler(quarto, request),
-      );
+      const execution = await precompiledExecution(quarto, options, request) ??
+        await runMarimoCompiler(quarto, request);
       const supporting: string[] = [];
       let resourceFiles: string[] | undefined;
       if (
