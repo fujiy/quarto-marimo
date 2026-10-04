@@ -12,5 +12,27 @@
   "expectedWorkerFactory": "\tcreate() {\n\t\treturn OB(new URL(this.url, import.meta.url), { name: this.name });\n\t}\n",
   "patchedWorkerFactory": "    create() {\n      // marimo resolves notebook_location() two levels above the assets entry.\n      const pageUrl = new URL(window.location.href);\n      const pageName = pageUrl.pathname.split(\"/\").pop() || \"index.html\";\n      const pageStem = pageName.replace(/\\.[^.]*$/, \"\") || \"index\";\n      const workerEntry = `${pageStem}_files/assets/quarto-marimo-worker.js`;\n      return new Worker(new URL(workerEntry, pageUrl), {\n        type: \"module\",\n        name: this.name\n      });\n    }\n",
   "expectedCacheConfig": "userConfig:nl()",
-  "patchedCacheConfig": "userConfig:{...nl(),runtime:{...nl().runtime,cache_cells:!0}}"
+  "patchedCacheConfig": "userConfig:{...nl(),runtime:{...nl().runtime,cache_cells:!0}}",
+  "expectedMathJaxLoader": "PA(\"https://cdn.jsdelivr.net/npm/mathjax-full@3.2.2/es5/tex-mml-svg.min.js\")",
+  "patchedMathJaxLoader": "PA(window.__quartoMarimoMathJaxUrl || \"https://cdn.jsdelivr.net/npm/mathjax-full@3.2.2/es5/tex-mml-svg.min.js\")",
+  "plotFile": "Plot-CTyjbQDT.js",
+  "plotSha256": "2f50eb22f78365d2119bf431a3fb490c569915e673205a809d6df5967fe10252",
+  "plotReplacements": [
+    {
+      "expected": "let t = (0, a.useRef)(null), { data:",
+      "replacement": "let queue = (0, a.useRef)(Promise.resolve()), t = (0, a.useRef)(null), { data:"
+    },
+    {
+      "expected": "\t\te && i.default.react(e, n, r, u).then(() => {\n\t\t\tif (d && d.length > 0) return i.default.addFrames(e, d);\n\t\t}).catch((e) => {\n\t\t\tg?.(e);\n\t\t});",
+      "replacement": "\t\tlet cancelled = false;\n\t\tqueue.current = queue.current.then(async () => {\n\t\t\tif (!e || cancelled) return;\n\t\t\tawait i.default.react(e, n, r, u);\n\t\t\tif (!cancelled && d && d.length > 0) await i.default.addFrames(e, d);\n\t\t}).catch((error) => { g?.(error); });\n\t\treturn () => { cancelled = true; };"
+    },
+    {
+      "expected": "e && i.default.purge(e);",
+      "replacement": "queue.current = queue.current.then(() => { if (e) i.default.purge(e); });"
+    },
+    {
+      "expected": "\t\tlet r = n, i = [];\n\t\tfor (let t of s) {\n\t\t\tlet n = e[c(t)];\n\t\t\tif (typeof n == \"function\") {\n\t\t\t\tlet e = l(t);\n\t\t\t\tr.on(e, n), i.push({\n\t\t\t\t\tplotlyName: e,\n\t\t\t\t\thandler: n\n\t\t\t\t});\n\t\t\t}\n\t\t}\n\t\treturn () => {\n\t\t\tfor (let { plotlyName: e, handler: t } of i) r.removeListener(e, t);\n\t\t};",
+      "replacement": "\t\tlet r = n, listeners = [], cancelled = false;\n\t\tqueue.current = queue.current.then(() => {\n\t\t\tif (cancelled) return;\n\t\t\tfor (let event of s) {\n\t\t\t\tlet handler = e[c(event)];\n\t\t\t\tif (typeof handler === \"function\") {\n\t\t\t\t\tlet name = l(event);\n\t\t\t\t\tr.on(name, handler);\n\t\t\t\t\tlisteners.push({ name, handler });\n\t\t\t\t}\n\t\t\t}\n\t\t}).catch((error) => { g?.(error); });\n\t\treturn () => {\n\t\t\tcancelled = true;\n\t\t\tfor (let { name, handler } of listeners) r.removeListener?.(name, handler);\n\t\t};"
+    }
+  ]
 }

@@ -18,7 +18,13 @@ from marimo._convert.markdown.to_ir import (
 )
 
 from quarto_marimo.authoring import normalize_markdown
-from quarto_marimo.compiler import cache_cells_enabled, compile_page
+from quarto_marimo.compiler import (
+    cache_cells_enabled,
+    compile_page,
+    generator_from_ir,
+    page_request,
+    to_marimo_ir,
+)
 from quarto_marimo.document import collect_page
 from quarto_marimo.protocol import CompiledMarimoPage
 from quarto_marimo.runtime_assets import ensure_runtime_assets
@@ -38,6 +44,7 @@ def convert_markdown(
     cache_output_dir: Path | None = None,
     extension_dir: Path | None = None,
     identity_only: bool = False,
+    describe_only: bool = False,
 ) -> dict[str, Any]:
     """Collect a page identity or compile its outputs using the same parser.
 
@@ -47,9 +54,20 @@ def convert_markdown(
 
     def identity_export(root: Element) -> SafeWrap:
         request = collect_page(root, filename=filename, global_eval=global_eval)
+        if describe_only:
+            from quarto_marimo.dependencies import source_dependencies
+
+            planned = page_request(request.to_json())
+            generator = generator_from_ir(to_marimo_ir(planned), planned)
+            return SafeWrap(
+                {
+                    "identity": request.identity,
+                    "dependencies": source_dependencies(generator._app.to_py()),
+                }
+            )
         return SafeWrap({"identity": request.identity})
 
-    if identity_only:
+    if identity_only or describe_only:
         callback = identity_export
     elif interactive:
         callback = interactive_export(
@@ -184,6 +202,7 @@ def main(argv: list[str] | None = None) -> int:
                 else None
             ),
             identity_only=output_mode.lower() == "identity",
+            describe_only=output_mode.lower() == "describe",
         )
     sys.stdout.buffer.write(json.dumps(result).encode("utf-8"))
     sys.stdout.flush()

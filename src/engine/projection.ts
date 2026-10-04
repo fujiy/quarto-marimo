@@ -12,6 +12,7 @@ export async function projectInteractivePage(
   page: CompiledMarimoPage,
   buildOutputs: StaticMarimoOutput[],
   htmlToMarkdown: (html: string) => Promise<string>,
+  externalPayload?: string,
 ): Promise<string[]> {
   if (buildOutputs.length !== page.cells.length) {
     throw new Error("marimo compiler returned mismatched build outputs");
@@ -36,7 +37,18 @@ export async function projectInteractivePage(
       isRenderOnly(cell)
         ? renderStaticOutput(buildOutputs[index], htmlToMarkdown)
         : Promise.resolve(
-          payloads[index] ? rawHtml(renderIsland(payloads[index])) : "",
+          payloads[index]
+            ? rawHtml(
+              externalPayload
+                ? `<${MARIMO_ELEMENT_NAME} data-marimo-src="${
+                  externalPayload.replaceAll("&", "&amp;").replaceAll(
+                    '"',
+                    "&quot;",
+                  ).replaceAll("<", "&lt;")
+                }" data-marimo-index="${index}" data-marimo-theme-mode="auto"></${MARIMO_ELEMENT_NAME}>`
+                : renderIsland(payloads[index]),
+            )
+            : "",
         )
     ),
   );

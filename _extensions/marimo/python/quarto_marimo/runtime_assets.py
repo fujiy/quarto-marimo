@@ -77,6 +77,11 @@ def apply_worker_patch(main_source: str, manifest: dict[str, Any]) -> str:
     patched = main_source.replace(expected, manifest["patchedWorkerFactory"])
     if expected in patched or patched == main_source:
         raise RuntimeError("islands Worker patch did not change main.js")
+    if "expectedMathJaxLoader" in manifest:
+        target = manifest["expectedMathJaxLoader"]
+        if patched.count(target) != 1:
+            raise RuntimeError("expected one MathJax loader in islands main.js")
+        patched = patched.replace(target, manifest["patchedMathJaxLoader"])
     return patched
 
 
@@ -100,6 +105,21 @@ def apply_cache_worker_patch(worker_source: str, manifest: dict[str, Any]) -> st
     if expected in patched or patched == worker_source:
         raise RuntimeError("islands Worker cache config patch did not change worker")
     return patched
+
+
+def apply_plot_patch(source: str, manifest: dict[str, Any]) -> str:
+    """Serialize Plotly rendering and defer purge until pending rendering ends.
+
+    Hydration can replace a plot while its asynchronous MathJax layout is still
+    running. The upstream component purges immediately, invalidating that layout.
+    """
+    if hashlib.sha256(source.encode()).hexdigest() != manifest["plotSha256"]:
+        raise RuntimeError("unsupported islands Plot bundle hash")
+    for patch in manifest["plotReplacements"]:
+        if source.count(patch["expected"]) != 1:
+            raise RuntimeError("expected one Plot lifecycle patch target")
+        source = source.replace(patch["expected"], patch["replacement"])
+    return source
 
 
 def ensure_runtime_assets(
@@ -279,6 +299,12 @@ def _install_runtime(
             apply_cache_worker_patch(worker.read_text(encoding="utf-8"), manifest),
             encoding="utf-8",
         )
+        if "plotFile" in manifest:
+            plot = staged_dist / manifest["plotFile"]
+            plot.write_text(
+                apply_plot_patch(plot.read_text(encoding="utf-8"), manifest),
+                encoding="utf-8",
+            )
         (temporary / marker.name).write_text(
             json.dumps(_installed_marker(manifest), sort_keys=True), encoding="utf-8"
         )
@@ -294,6 +320,7 @@ def _install_runtime(
 
 def _installed_marker(manifest: dict[str, Any]) -> dict[str, str]:
     return {
+        "patchSha256": hashlib.sha256(json.dumps(manifest, sort_keys=True).encode()).hexdigest(),
         "package": str(manifest["package"]),
         "version": str(manifest["version"]),
         "integrity": str(manifest["integrity"]),

@@ -503,11 +503,27 @@ async def build_generator(
                     stdout=sys.stderr,
                 )
             )
+    if cache_output_dir is not None:
+        discard_unrestorable_outputs(cache_output_dir)
     generator.has_run = True
 
     for stub in generator.stubs:
         stub._internal_app = generator._app
         stub._session_view = session
+
+
+def discard_unrestorable_outputs(output: Path) -> None:
+    """Force live execution when marimo could not serialize a cell's output.
+
+    marimo 0.25 restores such return values as UnhashableStub without rerunning
+    output-only cells. In particular this replaces forms with a stub string.
+    Remove only their lookup records; ordinary calculation caches stay reusable.
+    """
+    for path in (output / "public/cache/cell_cache").glob("*.jsonl"):
+        value = json.loads(path.read_text())
+        returned = value.get("meta", {}).get("return_value")
+        if isinstance(returned, dict) and "unserializable_type" in returned:
+            path.unlink()
 
 
 def stubs_from_generator(

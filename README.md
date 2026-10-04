@@ -155,6 +155,14 @@ cannot select a different runtime for a cached page.
 The first cache-enabled render fetches the pinned official islands tarball from
 npm, verifies its integrity, and reuses the download from the XDG cache later.
 
+Unserializable cell outputs (including UI form output) are excluded from exported
+cache lookups so the browser recreates them instead of displaying a marimo stub.
+Serializable calculation results retain their normal cache reuse.
+The pinned runtime also guards Plotly's asynchronous rendering lifecycle: pending
+renders finish before a plot is purged, and obsolete queued renders are skipped.
+The host adapter provides marimo's iframe resizing hook and reuses the host
+MathJax script to avoid loading incompatible major versions into one document.
+
 `QUARTO_MARIMO_VERSION` selects the marimo runtime version embedded in HTML
 output when cache hydration is disabled. Cache hydration uses the matching
 official runtime distribution bundled by the extension.

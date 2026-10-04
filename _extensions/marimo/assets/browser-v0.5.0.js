@@ -1004,6 +1004,33 @@ function renderMarimoIslandError(host, error) {
 }
 
 // npm:@marimo-team/mdx-marimo@0.0.5/dist/bridge/protocol/index.js
+function pageCellPayload(page, cell) {
+  return {
+    protocolVersion: page.protocolVersion,
+    app: page.app,
+    cell: pageCell(cell)
+  };
+}
+function pageCellReferencePayload(page, cell) {
+  if (!page.app) return pageCellPayload(page, cell);
+  return {
+    protocolVersion: page.protocolVersion,
+    appId: page.app.id,
+    cell: pageCell(cell)
+  };
+}
+function projectPageCellPayloads(page) {
+  const indices = page.cells.map((cell) => cell.index);
+  if (indices.some((index, position) => index !== position)) {
+    const expected = page.cells.map((_, index) => index);
+    throw new Error(`marimo compiler returned cell indices [${indices.join(", ")}]; expected [${expected.join(", ")}]`);
+  }
+  const carrierIndex = page.app ? page.cells.find((cell) => cell.options.render.include)?.index : void 0;
+  return page.cells.map((cell) => {
+    if (!cell.options.render.include) return null;
+    return cell.index === carrierIndex ? pageCellPayload(page, cell) : pageCellReferencePayload(page, cell);
+  });
+}
 function isMarimoPageCellPayload(value) {
   if (!isRecord(value) || value.protocolVersion !== 2) return false;
   if (!isPageCell(value.cell)) return false;
@@ -1012,8 +1039,26 @@ function isMarimoPageCellPayload(value) {
 function isMarimoPageCellReferencePayload(value) {
   return isRecord(value) && value.protocolVersion === 2 && typeof value.appId === "string" && value.appId.length > 0 && isPageCell(value.cell);
 }
+function isCompiledMarimoPage(value) {
+  return isRecord(value) && value.protocolVersion === 2 && (value.app === null || isPageRuntime(value.app)) && isArrayOf(value.cells, isCompiledCell) && isArrayOf(value.diagnostics, isDiagnostic);
+}
+function isCompiledCell(value) {
+  return isPageCell(value) && "output" in value && isCompiledOutput(value.output);
+}
 function isPageCell(value) {
   return isRecord(value) && isFiniteNumber(value.index) && typeof value.html === "string" && isCellOptions(value.options) && (value.diagnostics === void 0 || isArrayOf(value.diagnostics, isDiagnostic));
+}
+function isCompiledOutput(value) {
+  return value === null || isRecord(value) && typeof value.mimetype === "string" && isJsonValue(value.data) && typeof value.html === "string";
+}
+function pageCell(cell) {
+  const projected = {
+    index: cell.index,
+    html: cell.html,
+    options: cell.options
+  };
+  if (cell.diagnostics !== void 0) projected.diagnostics = cell.diagnostics;
+  return projected;
 }
 function isPageRuntime(value) {
   return isRecord(value) && typeof value.id === "string" && value.id.length > 0 && isFiniteNumber(value.runtimeCellCount) && isRuntimeAssets(value.assets) && (value.notebookCode === void 0 || typeof value.notebookCode === "string");
@@ -1032,6 +1077,12 @@ function isRenderOptions(value) {
 }
 function isDiagnostic(value) {
   return isRecord(value) && (value.severity === "warning" || value.severity === "error") && typeof value.message === "string" && (value.cellIndex === void 0 || isFiniteNumber(value.cellIndex)) && (value.line === void 0 || isFiniteNumber(value.line));
+}
+function isJsonValue(value) {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (isFiniteNumber(value)) return true;
+  if (Array.isArray(value)) return Array.from(value).every(isJsonValue);
+  return isRecord(value) && Object.values(value).every(isJsonValue);
 }
 function isStringRecord(value) {
   return isRecord(value) && Object.values(value).every(isString);
@@ -1309,11 +1360,107 @@ function pageAppDocumentState(document2) {
 var MARIMO_ELEMENT_NAME = "marimo-quarto-island";
 
 // src/browser/index.ts
+var hostWindow = window;
+var frameObservers = /* @__PURE__ */ new WeakMap();
+hostWindow.__resizeIframe = (frame) => {
+  frameObservers.get(frame)?.disconnect();
+  const doc = frame.contentDocument;
+  if (!doc?.body) return;
+  const resize = () => {
+    const element = doc.documentElement;
+    if (element.scrollHeight === element.clientHeight) return;
+    const height = element.scrollHeight + (element.scrollWidth > element.clientWidth ? 20 : 0);
+    if (frame.style.height !== `${height}px`) frame.style.height = `${height}px`;
+  };
+  resize();
+  const observer = new ResizeObserver(resize);
+  observer.observe(doc.body);
+  frameObservers.set(frame, observer);
+};
+var mathScript = document.querySelector('script[src*="mathjax"]');
+if (mathScript) {
+  hostWindow.__quartoMarimoMathJaxUrl = mathScript.src;
+  const ready = () => {
+    mathScript.dataset.status = "ready";
+  };
+  mathScript.addEventListener("load", ready, {
+    once: true
+  });
+  mathScript.addEventListener("error", () => {
+    mathScript.dataset.status = "error";
+  }, {
+    once: true
+  });
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", ready, {
+    once: true
+  });
+  else ready();
+}
 defineMarimoIslandElement({
   name: MARIMO_ELEMENT_NAME,
   host: "quarto",
   themeResolver: resolveQuartoTheme
 });
+var pages = /* @__PURE__ */ new Map();
+var loading = /* @__PURE__ */ new WeakSet();
+async function loadExternalIsland(element) {
+  const source = element.getAttribute("data-marimo-src");
+  if (!source || loading.has(element)) return;
+  loading.add(element);
+  try {
+    const url = new URL(source, document.baseURI).href;
+    let page = pages.get(url);
+    if (!page) {
+      page = fetch(url, {
+        cache: "no-store"
+      }).then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`marimo data: HTTP ${response.status}`);
+        }
+        const value = await response.json();
+        if (!isCompiledMarimoPage(value)) {
+          throw new Error("invalid marimo page data");
+        }
+        return projectPageCellPayloads({
+          ...value,
+          cells: value.cells.map((cell) => cell.options.render.renderOnly ? {
+            ...cell,
+            options: {
+              ...cell.options,
+              render: {
+                ...cell.options.render,
+                include: false
+              }
+            }
+          } : cell)
+        });
+      });
+      pages.set(url, page);
+    }
+    const index = Number(element.getAttribute("data-marimo-index"));
+    const payload = (await page)[index];
+    if (!Number.isInteger(index) || !payload) {
+      throw new Error("missing marimo cell data");
+    }
+    element.payload = payload;
+  } catch (error) {
+    element.setAttribute("data-marimo-load-error", "true");
+    element.textContent = `Unable to load interactive content: ${error}`;
+    console.error(error);
+  }
+}
+function loadExternalIslands() {
+  for (const element of document.querySelectorAll(`${MARIMO_ELEMENT_NAME}[data-marimo-src]`)) {
+    void loadExternalIsland(element);
+  }
+}
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", loadExternalIslands, {
+    once: true
+  });
+} else {
+  loadExternalIslands();
+}
 function resolveQuartoTheme(host) {
   let element = host;
   while (element) {
@@ -1323,3 +1470,6 @@ function resolveQuartoTheme(host) {
   }
   return void 0;
 }
+export {
+  loadExternalIsland
+};

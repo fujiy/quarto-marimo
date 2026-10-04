@@ -4,6 +4,61 @@ import type { QuartoAPI } from "@quarto/types";
 
 import { executeProcess, runMarimoCompiler } from "../../src/engine/process.ts";
 
+Deno.test("prepared execution is reused only for matching source and eval mode", async () => {
+  const directory = await Deno.makeTempDir();
+  const input = `${directory}/index.qmd`;
+  const old = Deno.env.get("QUARTO_MARIMO_PREPARED");
+  const source = "Body\n";
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(source),
+  );
+  const sourceHash = Array.from(
+    new Uint8Array(digest),
+    (b) => b.toString(16).padStart(2, "0"),
+  ).join("");
+  const execution = {
+    kind: "page" as const,
+    cacheHydration: false,
+    page: { protocolVersion: 2 as const, app: null, cells: [], diagnostics: [] },
+    buildOutputs: [],
+  };
+  const options = {
+    moduleUrl: import.meta.url,
+    input,
+    source,
+    interactive: true,
+    globalEval: true,
+    externalEnv: true,
+    pyproject: "",
+  };
+  const quarto = {} as QuartoAPI;
+  try {
+    Deno.env.set("QUARTO_MARIMO_PREPARED", "1");
+    await Deno.writeTextFile(input, source);
+    await Deno.writeTextFile(
+      `${input}.marimo.json`,
+      JSON.stringify({ sourceHash, globalEval: true, execution }),
+    );
+    assertEquals(await runMarimoCompiler(quarto, options), execution);
+    await assertRejects(
+      () => runMarimoCompiler(quarto, { ...options, globalEval: false }),
+      Error,
+      "stale or invalid",
+    );
+    await Deno.writeTextFile(input, "Changed body\n");
+    await assertRejects(
+      () => runMarimoCompiler(quarto, options),
+      Error,
+      "stale or invalid",
+    );
+  } finally {
+    if (old === undefined) Deno.env.delete("QUARTO_MARIMO_PREPARED");
+    else Deno.env.set("QUARTO_MARIMO_PREPARED", old);
+    await Deno.remove(directory, { recursive: true });
+  }
+});
+
 Deno.test({
   name: "external environments use QUARTO_PYTHON",
   ignore: Deno.build.os === "windows",

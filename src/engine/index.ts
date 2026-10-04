@@ -233,11 +233,28 @@ const marimoEngineDiscovery: ExecutionEngineDiscovery = {
         MARIMO_CELL_REGEX,
       );
       const marimoCells = chunks.cells.filter(isMarimoCell);
+      let externalPayload: string | undefined;
+      if (execution.kind === "page" && resourcePaths) {
+        await Deno.mkdir(resourcePaths.supportingDirectory, {
+          recursive: true,
+        });
+        await Deno.writeTextFile(
+          join(resourcePaths.supportingDirectory, "marimo.json"),
+          JSON.stringify(execution.page),
+        );
+        if (!supporting.includes(resourcePaths.supportingDirectory)) {
+          supporting.push(resourcePaths.supportingDirectory);
+        }
+        externalPayload = "./" +
+          resourcePaths.supportingDirectory.split(/[\\/]/).pop() +
+          "/marimo.json";
+      }
       const projected = execution.kind === "page"
         ? await projectInteractivePage(
           execution.page,
           execution.buildOutputs,
           htmlToMarkdown,
+          externalPayload,
         )
         : await projectStaticPage(execution.outputs, htmlToMarkdown);
       validateProjectionCount(projected, marimoCells.length);

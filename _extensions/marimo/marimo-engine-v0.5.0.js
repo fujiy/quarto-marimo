@@ -1117,7 +1117,7 @@ function isRecord(value) {
 var MARIMO_ELEMENT_NAME = "marimo-quarto-island";
 
 // src/engine/projection.ts
-async function projectInteractivePage(page, buildOutputs, htmlToMarkdown2) {
+async function projectInteractivePage(page, buildOutputs, htmlToMarkdown2, externalPayload) {
   if (buildOutputs.length !== page.cells.length) {
     throw new Error("marimo compiler returned mismatched build outputs");
   }
@@ -1135,7 +1135,7 @@ async function projectInteractivePage(page, buildOutputs, htmlToMarkdown2) {
     } : cell)
   };
   const payloads = projectPageCellPayloads(runtimePage);
-  return await Promise.all(page.cells.map((cell, index) => isRenderOnly(cell) ? renderStaticOutput(buildOutputs[index], htmlToMarkdown2) : Promise.resolve(payloads[index] ? rawHtml(renderIsland(payloads[index])) : "")));
+  return await Promise.all(page.cells.map((cell, index) => isRenderOnly(cell) ? renderStaticOutput(buildOutputs[index], htmlToMarkdown2) : Promise.resolve(payloads[index] ? rawHtml(externalPayload ? `<${MARIMO_ELEMENT_NAME} data-marimo-src="${externalPayload.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;")}" data-marimo-index="${index}" data-marimo-theme-mode="auto"></${MARIMO_ELEMENT_NAME}>` : renderIsland(payloads[index])) : "")));
 }
 function isRenderOnly(cell) {
   const render = cell.options.render;
@@ -1222,6 +1222,15 @@ async function marimoExecutionIdentity(quarto2, options) {
   return value.identity;
 }
 async function runMarimoCompiler(quarto2, options) {
+  if (options.interactive && Deno.env.get("QUARTO_MARIMO_PREPARED") === "1") {
+    const prepared = JSON.parse(await Deno.readTextFile(`${options.input}.marimo.json`));
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(await Deno.readTextFile(options.input)));
+    const hash = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+    if (prepared.sourceHash !== hash || prepared.globalEval !== options.globalEval || !isPageExecution(prepared.execution)) {
+      throw new Error("stale or invalid prepared marimo execution");
+    }
+    return prepared.execution;
+  }
   const extensionDir = dirname3(fromFileUrl3(options.moduleUrl));
   const extractPath = join3(extensionDir, "python", "extract.py");
   let command;
@@ -1722,7 +1731,18 @@ var marimoEngineDiscovery = {
       }
       const chunks = await quarto.markdownRegex.breakQuartoMd(options.target.markdown, false, false, MARIMO_CELL_REGEX);
       const marimoCells = chunks.cells.filter(isMarimoCell);
-      const projected = execution.kind === "page" ? await projectInteractivePage(execution.page, execution.buildOutputs, htmlToMarkdown) : await projectStaticPage(execution.outputs, htmlToMarkdown);
+      let externalPayload;
+      if (execution.kind === "page" && resourcePaths) {
+        await Deno.mkdir(resourcePaths.supportingDirectory, {
+          recursive: true
+        });
+        await Deno.writeTextFile(join3(resourcePaths.supportingDirectory, "marimo.json"), JSON.stringify(execution.page));
+        if (!supporting.includes(resourcePaths.supportingDirectory)) {
+          supporting.push(resourcePaths.supportingDirectory);
+        }
+        externalPayload = "./" + resourcePaths.supportingDirectory.split(/[\\/]/).pop() + "/marimo.json";
+      }
+      const projected = execution.kind === "page" ? await projectInteractivePage(execution.page, execution.buildOutputs, htmlToMarkdown, externalPayload) : await projectStaticPage(execution.outputs, htmlToMarkdown);
       validateProjectionCount(projected, marimoCells.length);
       let index = 0;
       const markdown = chunks.cells.map((cell) => isMarimoCell(cell) ? projected[index++] ?? "" : cell.sourceVerbatim.value).join("");

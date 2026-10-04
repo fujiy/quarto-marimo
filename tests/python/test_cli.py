@@ -325,3 +325,16 @@ def test_identity_collection_invalidates_cell_order_and_markdown_cells():
     assert identity(first + second) != identity(
         first + second.replace("text", "output")
     )
+
+
+def test_unserializable_cell_output_is_not_exported_as_a_cache_hit(tmp_path):
+    from quarto_marimo.compiler import discard_unrestorable_outputs
+    directory = tmp_path / 'public/cache/cell_cache'
+    directory.mkdir(parents=True)
+    good = directory / 'good.jsonl'
+    bad = directory / 'bad.jsonl'
+    good.write_text(json.dumps({'meta': {'return_value': {'reference': 'array.npy'}}}))
+    bad.write_text(json.dumps({'meta': {'return_value': {'unserializable_type': 'UIElementStub'}}}))
+    discard_unrestorable_outputs(tmp_path)
+    assert good.exists()
+    assert not bad.exists()

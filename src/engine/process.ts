@@ -75,6 +75,31 @@ export async function runMarimoCompiler(
   quarto: QuartoAPI,
   options: CompilerOptions,
 ): Promise<MarimoExecution> {
+  // A host may prepare execution before deciding whether Pandoc needs to run.
+  // Bind the sidecar to the exact staged source; never consume a stale result.
+  if (options.interactive && Deno.env.get("QUARTO_MARIMO_PREPARED") === "1") {
+    const prepared = JSON.parse(
+      await Deno.readTextFile(`${options.input}.marimo.json`),
+    );
+    const digest = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(
+        await Deno.readTextFile(options.input),
+      ),
+    );
+    const hash = Array.from(
+      new Uint8Array(digest),
+      (b) => b.toString(16).padStart(2, "0"),
+    ).join("");
+    if (
+      prepared.sourceHash !== hash ||
+      prepared.globalEval !== options.globalEval ||
+      !isPageExecution(prepared.execution)
+    ) {
+      throw new Error("stale or invalid prepared marimo execution");
+    }
+    return prepared.execution;
+  }
   const extensionDir = dirname(fromFileUrl(options.moduleUrl));
   const extractPath = join(extensionDir, "python", "extract.py");
   let command: string;

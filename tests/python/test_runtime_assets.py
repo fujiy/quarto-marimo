@@ -158,3 +158,29 @@ def test_ensure_runtime_assets_verifies_and_installs_official_distribution(
         installed.worker_file.read_text(encoding="utf-8")
         == "start({userConfig:cache-enabled})"
     )
+
+
+def test_mathjax_loader_reuses_host_choice_with_guarded_replacement():
+    source = 'blob-worker-factory; "/assets/worker-a.js"; PA("mathjax3")'
+    settings = manifest(source)
+    settings.update(expectedMathJaxLoader='PA("mathjax3")', patchedMathJaxLoader='PA(window.hostMath || "mathjax3")')
+    assert 'PA(window.hostMath || "mathjax3")' in apply_worker_patch(source, settings)
+    settings['expectedMathJaxLoader'] = 'missing'
+    with pytest.raises(RuntimeError, match='MathJax loader'):
+        apply_worker_patch(source, settings)
+
+
+def test_plot_patch_rejects_changed_runtime_and_ambiguous_targets():
+    from quarto_marimo.runtime_assets import apply_plot_patch
+
+    source = "render(); purge();"
+    settings = {
+        "plotSha256": hashlib.sha256(source.encode()).hexdigest(),
+        "plotReplacements": [{"expected": "purge();", "replacement": "deferPurge();"}],
+    }
+    assert apply_plot_patch(source, settings) == "render(); deferPurge();"
+    with pytest.raises(RuntimeError, match="Plot bundle hash"):
+        apply_plot_patch("different", settings)
+    settings["plotReplacements"] = [{"expected": "missing", "replacement": "new"}]
+    with pytest.raises(RuntimeError, match="Plot lifecycle patch target"):
+        apply_plot_patch(source, settings)
