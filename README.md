@@ -203,3 +203,28 @@ CHROME_BIN=/path/to/chrome \
 QUARTO_MARIMO_TEST_SITE_DIR=/path/to/cache-hydration/_site \
 make test-browser
 ```
+
+
+### Persistent compiler execution cache
+
+A host can opt in with `QUARTO_MARIMO_CACHE_CONFIG`, an absolute JSON path in
+its Quarto project. Cell execution remains inside the normal Quarto compiler
+invocation. No project-wide precompile phase is required. Static formats and
+pages absent from the configuration use normal execution.
+
+The configuration contains `cache_dir`, `source_roots`, optional `force`, and
+`pages`, keyed by project-relative input path. Each page specifies a stable
+`namespace`, host-versioned `context`, non-Python dependency `inputs`, an absolute
+`dependencies_file` for watcher feedback, and optional authored cell `lines` for
+diagnostics. The host must include installed package/environment versions and
+external data identities in `context`. The host is responsible for invalidating
+changes to external services and data that cannot be discovered from imports.
+
+Only successful payloads and their resource files are published, under a
+per-key process lock and with content hashes. Missing or damaged entries execute
+again. Error payloads still reach Quarto and retain their cell diagnostics.
+Prose and worker paths do not invalidate cell execution; code, dependency content,
+compiler implementation, runtime overrides, and the host context do.
+The compiler writes `diagnostics.json` and `compiler-resources.json` alongside
+page resources. The latter lists owned `public/cache` files so an incremental
+host can remove obsolete cache records after Quarto merges supporting files.

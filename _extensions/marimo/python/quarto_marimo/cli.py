@@ -26,6 +26,7 @@ from quarto_marimo.compiler import (
     to_marimo_ir,
 )
 from quarto_marimo.document import collect_page
+from quarto_marimo.execution_cache import cached_page
 from quarto_marimo.protocol import CompiledMarimoPage
 from quarto_marimo.runtime_assets import ensure_runtime_assets
 from quarto_marimo.static import render_static_page
@@ -67,6 +68,7 @@ def convert_markdown(
             )
         return SafeWrap({"identity": request.identity})
 
+    callback: ExportCallback
     if identity_only or describe_only:
         callback = identity_export
     elif interactive:
@@ -121,12 +123,22 @@ def interactive_export(
         payload = request.to_json()
         if cache_output_dir is not None:
             payload["cacheOutputDirectory"] = str(cache_output_dir)
-        page = asyncio.run(
-            compile_page(
-                payload,
-                development_url=os.environ.get("QUARTO_MARIMO_DEBUG_ENDPOINT"),
-                version_override=os.environ.get("QUARTO_MARIMO_VERSION"),
+
+        def execute() -> dict[str, Any]:
+            return asyncio.run(
+                compile_page(
+                    payload,
+                    development_url=os.environ.get("QUARTO_MARIMO_DEBUG_ENDPOINT"),
+                    version_override=os.environ.get("QUARTO_MARIMO_VERSION"),
+                )
             )
+
+        def dependency_code() -> str:
+            planned = page_request(request.to_json())
+            return generator_from_ir(to_marimo_ir(planned), planned)._app.to_py()
+
+        page = cached_page(
+            filename, request.identity, dependency_code, cache_output_dir, execute
         )
         compiled_page = CompiledMarimoPage.from_json(page)
         return SafeWrap(
