@@ -10,7 +10,7 @@
   "workerSha256": "f7bbc36edb8cc75be5ead9e660f38da04e6baaaf69c17ee33aaa4df5a2c83ca4",
   "expectedReplacementCount": 1,
   "expectedWorkerFactory": "\tcreate() {\n\t\treturn OB(new URL(this.url, import.meta.url), { name: this.name });\n\t}\n",
-  "patchedWorkerFactory": "    create() {\n      // marimo resolves notebook_location() two levels above the assets entry.\n      const pageUrl = new URL(window.location.href);\n      const pageName = pageUrl.pathname.split(\"/\").pop() || \"index.html\";\n      const pageStem = pageName.replace(/\\.[^.]*$/, \"\") || \"index\";\n      const workerEntry = `${pageStem}_files/assets/quarto-marimo-worker.js`;\n      return new Worker(new URL(workerEntry, pageUrl), {\n        type: \"module\",\n        name: this.name\n      });\n    }\n",
+  "patchedWorkerFactory": "    create() {\n      // marimo resolves notebook_location() two levels above the assets entry.\n      const pageUrl = new URL(window.location.href);\n      const pageName = pageUrl.pathname.split(\"/\").pop() || \"index.html\";\n      const pageStem = pageName.replace(/\\.[^.]*$/, \"\") || \"index\";\n      const workerEntry = `${pageStem}_files/assets/quarto-marimo-worker.js`;\n      return new Worker(new URL(window.quartoMarimoWorkerUrl || workerEntry, pageUrl), {\n        type: \"module\",\n        name: this.name\n      });\n    }\n",
   "expectedCacheConfig": "userConfig:nl()",
   "patchedCacheConfig": "userConfig:{...nl(),runtime:{...nl().runtime,cache_cells:!0}}",
   "expectedMathJaxLoader": "PA(\"https://cdn.jsdelivr.net/npm/mathjax-full@3.2.2/es5/tex-mml-svg.min.js\")",

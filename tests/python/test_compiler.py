@@ -351,3 +351,42 @@ def test_markdown_compiles_when_a_marimo_symbol_uses_the_mo_name():
 
 def compile_request(request: MarimoPageRequest) -> CompiledMarimoPage:
     return CompiledMarimoPage.from_json(asyncio.run(compile_page(request.to_json())))
+
+
+def test_selective_execution_runs_ancestors_but_not_unrelated_cells(tmp_path: Path):
+    marker = tmp_path / "must-not-run"
+    payload = request(
+        "base = 21",
+        "base * 2",
+        f"from pathlib import Path\nPath({str(marker)!r}).write_text('ran')",
+    ).to_json()
+    page = asyncio.run(compile_page(payload, execute_cells=[1]))
+    assert "42" in page["cells"][1]["output"]["html"]
+    assert page["cells"][2]["output"] is None
+    assert not marker.exists()
+
+
+def test_observed_execution_publishes_before_later_cell_finishes(tmp_path: Path):
+    marker = tmp_path / "finished"
+    observed = []
+    payload = request(
+        "base = 21\nbase",
+        f"from pathlib import Path\nimport time\ntime.sleep(0.5)\nPath({str(marker)!r}).write_text(str(base * 2))\nbase * 2",
+    ).to_json()
+
+    def notify(cell):
+        observed.append((cell["index"], marker.exists()))
+
+    page = asyncio.run(compile_page(payload, on_output=notify))
+    assert (0, False) in observed
+    assert marker.read_text() == "42"
+    assert "42" in page["cells"][1]["output"]["html"]
+
+
+def test_saved_markdown_preserves_unicode_in_mime_output():
+    from html import unescape
+    page = compile_request(request('import marimo as mo', 'mo.md("導出値 θ̇")'))
+    output = page.cells[1].output
+    assert output is not None
+    assert "導出値 θ̇" in unescape(output.html)
+    assert "å" not in output.html

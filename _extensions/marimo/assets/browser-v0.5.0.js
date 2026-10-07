@@ -1359,7 +1359,133 @@ function pageAppDocumentState(document2) {
 // src/island-element.ts
 var MARIMO_ELEMENT_NAME = "marimo-quarto-island";
 
+// src/browser/snapshot.ts
+function disposeSnapshot(host) {
+  const plotly = window.Plotly;
+  for (const node of host.querySelectorAll(".js-plotly-plot")) plotly?.purge(node);
+}
+async function displaySnapshot(host, html, plotlyUrl) {
+  disposeSnapshot(host);
+  host.innerHTML = html;
+  const value = (node, name) => {
+    const text = node.getAttribute(`data-${name}`);
+    return text === null ? void 0 : JSON.parse(text);
+  };
+  for (let node = host.querySelector("marimo-mime-renderer"); node; node = host.querySelector("marimo-mime-renderer")) {
+    const mime = value(node, "mime");
+    const data = value(node, "data");
+    const rendered = mime === "application/vnd.marimo+mimebundle" ? data?.["text/html"] : data;
+    const replacement = document.createElement("span");
+    if (mime === "text/plain" && typeof rendered === "string") {
+      replacement.textContent = rendered;
+    } else if ([
+      "text/html",
+      "text/markdown",
+      "application/vnd.marimo+mimebundle"
+    ].includes(String(mime)) && typeof rendered === "string") {
+      replacement.innerHTML = rendered;
+    } else {
+      throw new Error(`Unsupported saved MIME output: ${mime}`);
+    }
+    node.replaceWith(replacement);
+  }
+  for (const node of host.querySelectorAll("marimo-form,marimo-dict,marimo-array,marimo-ui-element")) {
+    node.replaceWith(...node.childNodes);
+  }
+  for (const node of host.querySelectorAll("marimo-matrix,marimo-table")) {
+    const table = document.createElement("table");
+    table.className = "table marimo-saved-table";
+    let rows;
+    if (node.tagName.toLowerCase() === "marimo-matrix") {
+      rows = value(node, "initial-value");
+      const labels = value(node, "row-labels");
+      rows = rows.map((row, i) => [
+        labels?.[i] ?? String(i + 1),
+        ...row
+      ]);
+    } else {
+      let data = value(node, "data");
+      if (typeof data === "string") data = JSON.parse(data);
+      if (!Array.isArray(data)) {
+        throw new Error("Saved table requires inline data");
+      }
+      const keys = Object.keys(data[0] ?? {});
+      rows = [
+        keys,
+        ...data.map((row) => keys.map((key) => row[key]))
+      ];
+      if (Number(value(node, "total-rows")) > data.length) {
+        throw new Error("Saved table is incomplete; export all rows before publishing");
+      }
+    }
+    for (const row of rows) {
+      const tr = document.createElement("tr");
+      for (const cell of row) {
+        const td = document.createElement("td");
+        td.textContent = String(cell ?? "");
+        tr.append(td);
+      }
+      table.append(tr);
+    }
+    node.replaceWith(table);
+  }
+  for (const node of host.querySelectorAll("[data-initial-value]")) {
+    const current = value(node, "initial-value");
+    const label = value(node, "label");
+    const readOnly = document.createElement("span");
+    readOnly.className = "marimo-saved-value";
+    if (typeof label === "string") {
+      const heading = document.createElement("span");
+      heading.innerHTML = label;
+      readOnly.append(heading, ": ");
+    }
+    readOnly.append(typeof current === "string" ? current : JSON.stringify(current ?? ""));
+    node.replaceWith(readOnly);
+  }
+  for (const node of host.querySelectorAll("marimo-tex")) {
+    const span = document.createElement("span");
+    span.innerHTML = node.innerHTML.replaceAll("||(", "\\(").replaceAll("||)", "\\)").replaceAll("||[", "\\[").replaceAll("||]", "\\]");
+    node.replaceWith(span);
+  }
+  for (const node of host.querySelectorAll("marimo-plotly")) {
+    const figure = value(node, "figure");
+    const config = value(node, "config");
+    const target = document.createElement("div");
+    node.replaceWith(target);
+    const plotly = await loadPlotly(plotlyUrl);
+    await plotly.newPlot(target, figure.data, figure.layout, config);
+    if (Array.isArray(figure.frames)) {
+      await plotly.addFrames(target, figure.frames);
+    }
+  }
+  const math = window.MathJax;
+  if (math?.Hub) math.Hub.Queue([
+    "Typeset",
+    math.Hub,
+    host
+  ]);
+  else if (math?.typesetPromise) await math.typesetPromise([
+    host
+  ]);
+}
+var loadingPlotly;
+function loadPlotly(url) {
+  return loadingPlotly ??= new Promise((resolve, reject) => {
+    const global = window;
+    if (global.Plotly) return resolve(global.Plotly);
+    const script = document.createElement("script");
+    script.src = url;
+    script.onload = () => global.Plotly ? resolve(global.Plotly) : reject(new Error("Plotly unavailable"));
+    script.onerror = () => reject(new Error("Unable to load saved plot renderer"));
+    document.head.append(script);
+  });
+}
+
 // src/browser/index.ts
+Object.assign(window, {
+  quartoMarimoDisplay: displaySnapshot,
+  quartoMarimoDispose: disposeSnapshot
+});
 var hostWindow = window;
 var frameObservers = /* @__PURE__ */ new WeakMap();
 hostWindow.__resizeIframe = (frame) => {
@@ -1370,7 +1496,9 @@ hostWindow.__resizeIframe = (frame) => {
     const element = doc.documentElement;
     if (element.scrollHeight === element.clientHeight) return;
     const height = element.scrollHeight + (element.scrollWidth > element.clientWidth ? 20 : 0);
-    if (frame.style.height !== `${height}px`) frame.style.height = `${height}px`;
+    if (frame.style.height !== `${height}px`) {
+      frame.style.height = `${height}px`;
+    }
   };
   resize();
   const observer = new ResizeObserver(resize);
@@ -1391,10 +1519,11 @@ if (mathScript) {
   }, {
     once: true
   });
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", ready, {
-    once: true
-  });
-  else ready();
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", ready, {
+      once: true
+    });
+  } else ready();
 }
 defineMarimoIslandElement({
   name: MARIMO_ELEMENT_NAME,
@@ -1421,9 +1550,11 @@ async function loadExternalIsland(element) {
         if (!isCompiledMarimoPage(value)) {
           throw new Error("invalid marimo page data");
         }
+        const prepare = window.quartoMarimoPrepare;
+        const prepared = prepare ? await prepare(value, url) : value;
         return projectPageCellPayloads({
-          ...value,
-          cells: value.cells.map((cell) => cell.options.render.renderOnly ? {
+          ...prepared,
+          cells: prepared.cells.map((cell) => cell.options.render.renderOnly ? {
             ...cell,
             options: {
               ...cell.options,

@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from html.parser import HTMLParser
 from importlib import import_module
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import quote
 
 import marimo
@@ -36,6 +36,9 @@ from marimo._schemas.serialization import (
     NotebookSerializationV1,
     UnparsableCell,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Collection
 
 PAGE_PROTOCOL_VERSION = 2
 DEFAULT_MARIMO_IMPORT = "import marimo as mo"
@@ -149,7 +152,9 @@ def sql_engine(value: Any) -> str | None:
 
 
 def executable_source(cell: dict[str, Any], options: dict[str, Any]) -> str:
-    code = str(cell.get("source") or "")
+    code = str(
+        as_dict(options.get("execution")).get("source", cell.get("source")) or ""
+    )
     language = str(options.get("language") or "python").lower()
     if language == "sql":
         sql = as_dict(options.get("sql"))
@@ -431,6 +436,7 @@ async def build_generator(
     generator: MarimoIslandGenerator,
     *,
     cache_output_dir: Path | None = None,
+    on_output: Callable[[int, Any], None] | None = None,
 ) -> None:
     from marimo._session.notebook import AppFileManager
 
@@ -483,7 +489,14 @@ async def build_generator(
             persist_session=False,
         )
     else:
-        session, _did_error = await export_file.run_notebook(
+        run_notebook = export_file.run_notebook
+        if on_output is not None:
+            from quarto_marimo.execution import run_observed_notebook
+
+            async def run_notebook(request: Any) -> Any:
+                return await run_observed_notebook(request, on_output)
+
+        session, _did_error = await run_notebook(
             export_requests.RunNotebookRequest(
                 file_manager=file_manager,
                 options=export_requests.NotebookExecutionOptions(
@@ -645,13 +658,11 @@ def compiled_output(stub: Any) -> dict[str, Any] | None:
     if mimetype in {"text/html", "image/svg+xml"} and isinstance(data, str):
         html = data
     else:
-        html = render_stub(
-            stub,
-            display_code=False,
-            display_output=True,
-            is_reactive=False,
-            as_raw=True,
-        )
+        from marimo._output.formatting import mime_to_html
+
+        # Island.render(as_raw=True) decodes UTF-8 as unicode_escape, corrupting
+        # non-ASCII MIME contents. Preserve the original structured output.
+        html = mime_to_html(output.mimetype, output.data).text
     return {
         "mimetype": mimetype,
         "data": data,
@@ -763,10 +774,36 @@ async def compile_page(
     *,
     development_url: str | None = None,
     version_override: str | None = None,
+    execute_cells: Collection[int] | None = None,
+    on_output: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
+    """Compile a page, optionally executing only selected cells and ancestors.
+
+    ``execute_cells`` uses zero-based authored indices and affects only native
+    export. Browser notebook code is preserved. ``on_output`` receives saved
+    cell payloads as native outputs arrive; cache readiness is guaranteed only
+    after this coroutine returns successfully.
+    """
     request = page_request(payload)
+    if execute_cells is not None and any(
+        index < 0 or index >= len(request.cells) for index in execute_cells
+    ):
+        raise ValueError("execute_cells contains an invalid authored cell index")
     notebook = to_marimo_ir(request)
     browser_notebook = to_marimo_ir(request, browser=True)
+    if execute_cells is not None:
+        # Select by authored index while preserving cell IDs and notebook code.
+        # Ancestors are resolved by marimo, without executing Python imports.
+        probe = generator_from_ir(notebook, request)
+        ids = list(probe._app.cell_manager.cell_ids())
+        offset = len(request.setup_cells)
+        selected = {ids[offset + index] for index in execute_cells}
+        required = set(selected)
+        for cell_id in selected:
+            required.update(probe._app.graph.ancestors(cell_id))
+        for cell_id, cell in zip(ids, notebook.cells, strict=True):
+            if cell_id not in required:
+                cell.options["disabled"] = True
     cache_output_dir: Path | None = None
     if request.pyproject and cache_cells_enabled(request.pyproject):
         requested_output = payload.get("cacheOutputDirectory")
@@ -785,6 +822,7 @@ async def compile_page(
             generator,
             development_url=development_url,
             version_override=version_override,
+            on_output=on_output,
         )
 
     # marimo stores its export manifest beside the notebook path. Give each
@@ -799,6 +837,7 @@ async def compile_page(
             cache_output_dir=cache_output_dir,
             development_url=development_url,
             version_override=version_override,
+            on_output=on_output,
         )
 
 
@@ -810,12 +849,27 @@ async def _compile_page_generator(
     cache_output_dir: Path | None = None,
     development_url: str | None = None,
     version_override: str | None = None,
+    on_output: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     runtime_cells = request.runtime_cells
     stubs = stubs_from_generator(generator, runtime_cells)
 
     if stubs:
-        await build_generator(generator, cache_output_dir=cache_output_dir)
+
+        def notify(index: int, output: Any) -> None:
+            authored = index - len(request.setup_cells)
+            if on_output is not None and authored >= 0:
+                stub = stubs[index]
+                stub._output = output
+                on_output(
+                    outputs_from_stubs(request, [request.cells[authored]], [stub])[0]
+                )
+
+        await build_generator(
+            generator,
+            cache_output_dir=cache_output_dir,
+            on_output=notify if on_output is not None else None,
+        )
 
     for plan, stub in zip(
         request.setup_cells,

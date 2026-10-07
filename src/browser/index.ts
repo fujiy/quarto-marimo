@@ -3,10 +3,14 @@ import {
   type MarimoIslandElement,
 } from "@marimo-team/mdx-marimo/bridge/element";
 import {
+  type CompiledMarimoPage,
   isCompiledMarimoPage,
   projectPageCellPayloads,
 } from "@marimo-team/mdx-marimo/bridge/protocol";
 import { MARIMO_ELEMENT_NAME } from "../island-element.ts";
+import { displaySnapshot, disposeSnapshot } from "./snapshot.ts";
+
+Object.assign(window, { quartoMarimoDisplay: displaySnapshot, quartoMarimoDispose: disposeSnapshot });
 
 // The islands bundle also runs outside marimo's index.html. Supply its iframe
 // hook and reuse Quarto's MathJax instead of loading a conflicting major version.
@@ -81,9 +85,18 @@ export async function loadExternalIsland(
         if (!isCompiledMarimoPage(value)) {
           throw new Error("invalid marimo page data");
         }
+        // Hosts may display snapshots while preparing the initial runtime state.
+        // The bridge only mounts once the host releases this page.
+        const prepare = (window as Window & {
+          quartoMarimoPrepare?: (
+            page: CompiledMarimoPage,
+            url: string,
+          ) => Promise<CompiledMarimoPage>;
+        }).quartoMarimoPrepare;
+        const prepared = prepare ? await prepare(value, url) : value;
         return projectPageCellPayloads({
-          ...value,
-          cells: value.cells.map((cell) =>
+          ...prepared,
+          cells: prepared.cells.map((cell) =>
             (cell.options.render as { renderOnly?: boolean }).renderOnly
               ? {
                 ...cell,

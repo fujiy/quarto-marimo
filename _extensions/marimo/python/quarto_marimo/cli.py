@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import json
 import os
 import sys
@@ -137,9 +138,14 @@ def interactive_export(
             planned = page_request(request.to_json())
             return generator_from_ir(to_marimo_ir(planned), planned)._app.to_py()
 
-        page = cached_page(
-            filename, request.identity, dependency_code, cache_output_dir, execute
-        )
+        host = os.environ.get("QUARTO_MARIMO_EXECUTION_HOST")
+        if host:
+            module, function = host.split(":", 1)
+            page = getattr(importlib.import_module(module), function)(payload)
+        else:
+            page = cached_page(
+                filename, request.identity, dependency_code, cache_output_dir, execute
+            )
         compiled_page = CompiledMarimoPage.from_json(page)
         return SafeWrap(
             {

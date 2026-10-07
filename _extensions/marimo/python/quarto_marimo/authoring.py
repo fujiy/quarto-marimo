@@ -148,6 +148,11 @@ def execution_options_patch(options: JsonObject) -> JsonObject:
             render[target] = as_bool(options[source])
     if as_bool(render.get("editor")):
         render["source"] = True
+    if "state-cache" in options:
+        policy = str(options["state-cache"])
+        if policy not in {"auto", "keep", "omit"}:
+            raise ValueError("state-cache must be auto, keep, or omit")
+        execution["stateCache"] = policy
     if "eval" in options:
         execution["enabled"] = as_bool(options["eval"])
     context = str(options.get("context") or "runtime").strip().lower()

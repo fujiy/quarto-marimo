@@ -30,7 +30,7 @@ BANNER = (
 def bundle(source: str | Path, *options: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [
-            find_deno_bin(),
+            shutil.which("deno") or find_deno_bin(),
             "bundle",
             "--quiet",
             *options,
@@ -82,6 +82,11 @@ def main() -> int:
 
     DIST_DIR.mkdir(exist_ok=True)
     ASSETS_DIR.mkdir(exist_ok=True)
+    snapshot = bundle(REPO_ROOT / "src/browser/snapshot.ts", "--platform", "browser", "--format", "esm")
+    if snapshot.returncode != 0:
+        sys.stderr.write(snapshot.stderr)
+        return snapshot.returncode
+    (ASSETS_DIR / "snapshot.js").write_text(BANNER + normalize_bundle(snapshot.stdout), encoding="utf-8")
     browser_output = DIST_DIR / f"browser-v{version}.js"
     styles_output = DIST_DIR / f"islands-bridge-v{version}.css"
     browser_output.write_text(
